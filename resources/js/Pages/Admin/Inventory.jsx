@@ -58,7 +58,7 @@ const Modal = ({ isOpen, onClose, title, subtitle, size = 'md', children }) => {
                                 <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
                                 {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
                             </div>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-500 transition-colors" aria-label="Close modal">
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-500 transition-colors">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
@@ -272,6 +272,24 @@ const IngredientSearchInput = ({ value, ingredients, onSelect, placeholder = "Ty
 
     return (
         <div className="relative w-full">
+            {showSuggestions && suggestions.length > 0 && (
+                <div ref={suggestionsRef} className="absolute z-50 w-full mb-1 bottom-full left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                    {suggestions.map((ing, idx) => (
+                        <div
+                            key={ing.id}
+                            onClick={() => handleSelectSuggestion(ing)}
+                            className={`px-3 py-2 cursor-pointer transition-all duration-150 ${idx === selectedIndex ? 'bg-blue-50' : 'hover:bg-gray-50'} ${idx !== suggestions.length - 1 ? 'border-b border-gray-100' : ''}`}
+                        >
+                            <div className="font-medium text-gray-900 text-sm">{ing.name}</div>
+                            <div className="text-xs text-gray-500 mt-1 flex gap-3">
+                                <span>Unit: {ing.unit}</span>
+                                <span>Stock: {ing.current_stock?.toFixed(2)}</span>
+                                <span>Price: ₱{ing.cost_per_unit?.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
             <input
                 ref={inputRef}
                 type="text"
@@ -282,24 +300,6 @@ const IngredientSearchInput = ({ value, ingredients, onSelect, placeholder = "Ty
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 autoComplete="off"
             />
-            {showSuggestions && suggestions.length > 0 && (
-                <div ref={suggestionsRef} className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                    {suggestions.map((ing, idx) => (
-                        <div
-                            key={ing.id}
-                            onClick={() => handleSelectSuggestion(ing)}
-                            className={`px-3 py-2 cursor-pointer transition-all duration-150 ${idx === selectedIndex ? 'bg-blue-50' : 'hover:bg-gray-50'} ${idx !== suggestions.length - 1 ? 'border-b border-gray-100' : ''}`}
-                        >
-                            <div className="font-medium text-gray-900 text-sm">{ing.name}</div>
-                            <div className="text-xs text-gray-500 mt-1 flex gap-3">
-                                <span>Unit: {ing.unit}</span>
-                                <span>Stock: {Math.floor(ing.current_stock)}</span>
-                                <span>Price: ₱{ing.cost_per_unit?.toFixed(2)}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
         </div>
     );
 };
@@ -311,31 +311,59 @@ const IngredientNameValidator = ({ value, ingredients, onLoadExisting, onChange 
     const [existingWarning, setExistingWarning] = useState(null);
     const inputRef = useRef(null);
     const suggestionsRef = useRef(null);
+    const debounceTimerRef = useRef(null);
 
     useEffect(() => {
-        if (value.length > 0 && ingredients) {
-            const exactMatch = ingredients.find(ing => ing.name?.toLowerCase() === value.toLowerCase());
-            if (exactMatch) {
-                setExistingWarning(`⚠️ "${value}" already exists! Adding stock to existing ingredient...`);
-                onLoadExisting(exactMatch);
-                setSuggestions([]);
-                setShowSuggestions(false);
-            } else {
-                setExistingWarning(null);
-                onLoadExisting(null);
-                const matches = ingredients.filter(ing => ing.name?.toLowerCase().includes(value.toLowerCase())).slice(0, 3);
-                setSuggestions(matches);
-                setShowSuggestions(matches.length > 0);
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
             }
+        };
+    }, []);
+
+    const handleInputChange = (e) => {
+        const newValue = e.target.value;
+        onChange(newValue);
+        setExistingWarning(null);
+        
+        if (newValue.length > 0 && ingredients) {
+            const matches = ingredients.filter(ing => 
+                ing.name?.toLowerCase().includes(newValue.toLowerCase())
+            ).slice(0, 5);
+            setSuggestions(matches);
+            setShowSuggestions(matches.length > 0);
         } else {
             setSuggestions([]);
             setShowSuggestions(false);
-            setExistingWarning(null);
+        }
+        
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+        
+        if (newValue.length > 0) {
+            debounceTimerRef.current = setTimeout(() => {
+                if (ingredients) {
+                    const exactMatch = ingredients.find(ing => 
+                        ing.name?.toLowerCase() === newValue.toLowerCase()
+                    );
+                    if (exactMatch) {
+                        setExistingWarning(`⚠️ "${newValue}" already exists! Adding stock to existing ingredient...`);
+                        onLoadExisting(exactMatch);
+                        setSuggestions([]);
+                        setShowSuggestions(false);
+                    }
+                }
+            }, 500);
+        } else {
             onLoadExisting(null);
         }
-    }, [value, ingredients, onLoadExisting]);
+    };
 
     const handleSelectSuggestion = (ingredient) => {
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
         onChange(ingredient.name);
         onLoadExisting(ingredient);
         setExistingWarning(`⚠️ "${ingredient.name}" already exists! Adding stock to existing ingredient...`);
@@ -380,7 +408,7 @@ const IngredientNameValidator = ({ value, ingredients, onLoadExisting, onChange 
                 ref={inputRef}
                 type="text"
                 value={value}
-                onChange={(e) => { onChange(e.target.value); setExistingWarning(null); }}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder="Type ingredient name..."
                 className={`w-full px-3 py-2 text-sm border ${existingWarning ? 'border-yellow-500 bg-yellow-50' : 'border-gray-200'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white`}
@@ -393,7 +421,7 @@ const IngredientNameValidator = ({ value, ingredients, onLoadExisting, onChange 
                 </div>
             )}
             {showSuggestions && suggestions.length > 0 && !existingWarning && (
-                <div ref={suggestionsRef} className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                <div ref={suggestionsRef} className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden" style={{ top: '100%', left: 0 }}>
                     <div className="px-3 py-1 bg-gray-50 text-xs text-gray-500 border-b">Similar ingredients found:</div>
                     {suggestions.map((ing, idx) => (
                         <div
@@ -404,7 +432,7 @@ const IngredientNameValidator = ({ value, ingredients, onLoadExisting, onChange 
                             <div className="font-medium text-gray-900 text-sm">{ing.name}</div>
                             <div className="text-xs text-gray-500 mt-1 flex gap-3">
                                 <span>Unit: {ing.unit}</span>
-                                <span>Stock: {Math.floor(ing.current_stock)}</span>
+                                <span>Stock: {ing.current_stock?.toFixed(2)}</span>
                                 <span>Category: {ing.category || 'Uncategorized'}</span>
                             </div>
                         </div>
@@ -440,6 +468,11 @@ const getStatusText = (status) => {
 };
 
 const formatPrice = (price) => `₱${(price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const formatNumber = (num) => {
+    if (num === null || num === undefined) return '0.00';
+    return parseFloat(num).toFixed(2);
+};
 
 const formatPriceRange = (priceRange) => {
     if (!priceRange) return formatPrice(0);
@@ -509,6 +542,7 @@ export default function Inventory({ auth }) {
     const [checkQuantity, setCheckQuantity] = useState(1);
     const [checkResult, setCheckResult] = useState(null);
     const [existingIngredientId, setExistingIngredientId] = useState(null);
+    const [existingIngredientData, setExistingIngredientData] = useState(null);
 
     const [newIngredient, setNewIngredient] = useState({
         name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0
@@ -599,9 +633,43 @@ export default function Inventory({ auth }) {
         setTimeout(() => setErrorMessage(null), 5000);
     };
 
+    const loadExistingIngredientIntoForm = (existingIngredient) => {
+        if (existingIngredient) {
+            setExistingIngredientId(existingIngredient.id);
+            setExistingIngredientData(existingIngredient);
+            setNewIngredient(prev => ({
+                ...prev,
+                name: existingIngredient.name,
+                unit: existingIngredient.unit,
+                category: existingIngredient.category || '',
+                pool: existingIngredient.pool,
+                min_stock: existingIngredient.min_stock,
+                cost_per_unit: existingIngredient.cost_per_unit
+            }));
+            if (existingIngredient.category && !PREDEFINED_CATEGORIES.includes(existingIngredient.category)) {
+                setCustomCategory(true);
+            } else {
+                setCustomCategory(false);
+            }
+        } else {
+            setExistingIngredientId(null);
+            setExistingIngredientData(null);
+            setNewIngredient(prev => ({
+                ...prev,
+                name: '',
+                category: ''
+            }));
+        }
+    };
+
     const addOrUpdateIngredient = async () => {
         if (!newIngredient.name) {
             setFormErrors({ name: 'Ingredient name is required' });
+            return;
+        }
+        
+        if (newIngredient.initial_stock <= 0) {
+            setFormErrors({ initial_stock: 'Please enter quantity to add' });
             return;
         }
         
@@ -611,8 +679,8 @@ export default function Inventory({ auth }) {
             try {
                 const response = await axios.post('/admin/inventory/add-stock', {
                     ingredient_id: existingIngredientId,
-                    quantity: parseFloat(newIngredient.initial_stock) || 0,
-                    cost_per_unit: parseFloat(newIngredient.cost_per_unit) || 0,
+                    quantity: parseFloat(newIngredient.initial_stock),
+                    cost_per_unit: parseFloat(newIngredient.cost_per_unit) || existingIngredientData?.cost_per_unit || 0,
                     pool: newIngredient.pool,
                     notes: `Added ${newIngredient.initial_stock} ${newIngredient.unit} to existing ingredient`
                 });
@@ -622,6 +690,7 @@ export default function Inventory({ auth }) {
                     setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 });
                     setCustomCategory(false);
                     setExistingIngredientId(null);
+                    setExistingIngredientData(null);
                     setFormErrors({});
                     await refreshIngredients();
                     showSuccess(response.data.message || 'Stock added successfully');
@@ -646,8 +715,6 @@ export default function Inventory({ auth }) {
                     cost_per_unit: parseFloat(newIngredient.cost_per_unit) || 0
                 };
                 
-                console.log('Creating ingredient with payload:', payload);
-                
                 const response = await axios.post('/admin/inventory/ingredients', payload);
                 
                 if (response.data.success) {
@@ -670,35 +737,67 @@ export default function Inventory({ auth }) {
     };
 
     const updateIngredient = async () => {
+        if (!editIngredientData.name) {
+            setFormErrors({ name: 'Ingredient name is required' });
+            return;
+        }
+        
         setIsSubmitting(true);
         try {
+            // Get CSRF token
+            let csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            
+            // If no token, fetch a fresh one
+            if (!csrfToken) {
+                const csrfResponse = await fetch('/csrf-token', {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const csrfData = await csrfResponse.json();
+                csrfToken = csrfData.token;
+                const metaTag = document.querySelector('meta[name="csrf-token"]');
+                if (metaTag) metaTag.setAttribute('content', csrfToken);
+            }
+            
             const payload = {
                 name: editIngredientData.name,
                 unit: editIngredientData.unit,
                 category: editIngredientData.category || null,
-                min_stock: parseInt(editIngredientData.min_stock) || 0,
+                min_stock: parseFloat(editIngredientData.min_stock) || 0,
                 current_stock: editIngredientData.current_stock || 0,
                 pool: editIngredientData.pool,
                 cost_per_unit: parseFloat(editIngredientData.cost_per_unit) || 0
             };
             
-            console.log('=== UPDATING INGREDIENT ===');
-            console.log('ID:', editIngredientData.id);
-            console.log('Category value being sent:', payload.category);
+            console.log('Updating ingredient with payload:', payload);
             
-            const response = await axios.put(`/admin/inventory/ingredients/${editIngredientData.id}`, payload);
+            const response = await axios.put(`/admin/inventory/ingredients/${editIngredientData.id}`, payload, {
+                headers: {
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                withCredentials: true
+            });
             
             if (response.data.success) {
                 setShowEditIngredient(false);
                 setFormErrors({});
                 await refreshIngredients();
-                showSuccess('Ingredient updated successfully.');
+                showSuccess(`Ingredient "${editIngredientData.name}" updated successfully.`);
             } else {
                 showError(response.data.message || 'Failed to update ingredient');
             }
         } catch (error) {
             console.error('Update ingredient error:', error);
-            showError(error.response?.data?.message || 'Failed to update ingredient');
+            if (error.response?.status === 403) {
+                showError('Permission denied. Please refresh the page and try again.');
+            } else if (error.response?.status === 419) {
+                showError('Session expired. Please refresh the page.');
+            } else {
+                showError(error.response?.data?.message || 'Failed to update ingredient');
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -707,8 +806,19 @@ export default function Inventory({ auth }) {
     const deleteIngredient = async (ingredient) => {
         if (!confirm(`Are you sure you want to delete "${ingredient.name}"?`)) return;
         
+        // Get CSRF token
+        let csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        if (!csrfToken) {
+            const csrfResponse = await fetch('/csrf-token', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+            const csrfData = await csrfResponse.json();
+            csrfToken = csrfData.token;
+        }
+        
         try {
-            const response = await axios.delete(`/admin/inventory/ingredients/${ingredient.id}`);
+            const response = await axios.delete(`/admin/inventory/ingredients/${ingredient.id}`, {
+                headers: { 'X-CSRF-TOKEN': csrfToken, 'Content-Type': 'application/json' },
+                withCredentials: true
+            });
             if (response.data.success) {
                 await refreshIngredients();
                 showSuccess('Ingredient deleted successfully.');
@@ -721,32 +831,10 @@ export default function Inventory({ auth }) {
         setOpenDropdown(null);
     };
 
-    const loadExistingIngredientIntoForm = (existingIngredient) => {
-        if (existingIngredient) {
-            setExistingIngredientId(existingIngredient.id);
-            setNewIngredient({
-                name: existingIngredient.name,
-                unit: existingIngredient.unit,
-                category: existingIngredient.category || '',
-                pool: existingIngredient.pool,
-                min_stock: existingIngredient.min_stock,
-                initial_stock: 0,
-                cost_per_unit: existingIngredient.cost_per_unit
-            });
-            if (existingIngredient.category && !PREDEFINED_CATEGORIES.includes(existingIngredient.category)) {
-                setCustomCategory(true);
-            } else {
-                setCustomCategory(false);
-            }
-        } else {
-            setExistingIngredientId(null);
-        }
-    };
-
     const submitBulkUpdate = async () => {
-        const validItems = bulkData.items.filter(item => item.ingredient_id && item.quantity && item.cost_per_unit);
+        const validItems = bulkData.items.filter(item => item.ingredient_id && item.quantity && parseFloat(item.quantity) > 0);
         if (validItems.length === 0) {
-            setFormErrors({ items: 'Please add at least one item' });
+            setFormErrors({ items: 'Please add at least one item with quantity > 0' });
             return;
         }
         
@@ -760,8 +848,8 @@ export default function Inventory({ auth }) {
                 pool: bulkData.pool,
                 items: validItems.map(item => ({
                     ingredient_id: parseInt(item.ingredient_id),
-                    quantity: parseInt(item.quantity),
-                    cost_per_unit: parseFloat(item.cost_per_unit)
+                    quantity: parseFloat(item.quantity),
+                    cost_per_unit: parseFloat(item.cost_per_unit) || 0
                 }))
             });
 
@@ -883,8 +971,8 @@ export default function Inventory({ auth }) {
             wastage: '/admin/inventory/wastage'
         };
         
-        if (!formData.ingredient_id || !formData.quantity) {
-            setFormErrors({ submit: 'Please select ingredient and enter quantity' });
+        if (!formData.ingredient_id || !formData.quantity || parseFloat(formData.quantity) <= 0) {
+            setFormErrors({ submit: 'Please select ingredient and enter valid quantity' });
             return;
         }
         
@@ -927,7 +1015,7 @@ export default function Inventory({ auth }) {
                 items: validItems.map(i => ({
                     ingredient_id: parseInt(i.ingredient_id),
                     pool: i.pool,
-                    counted_quantity: parseInt(i.counted_quantity)
+                    counted_quantity: parseFloat(i.counted_quantity)
                 }))
             });
             
@@ -1174,25 +1262,23 @@ export default function Inventory({ auth }) {
                             
                             <div className="flex flex-wrap gap-3 mb-4">
                                 <input
-                                    id="search"
-                                    name="search"
                                     type="text"
                                     placeholder="Search ingredients..."
                                     className="flex-1 min-w-[180px] px-3 py-1.5 border rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
                                     value={searchTerm}
                                     onChange={(e) => { setSearchTerm(e.target.value); setIngredientsPage(1); }}
                                 />
-                                <select id="categoryFilter" name="categoryFilter" className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setIngredientsPage(1); }}>
+                                <select className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setIngredientsPage(1); }}>
                                     {categoryOptions.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                 </select>
-                                <select id="statusFilter" name="statusFilter" className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setIngredientsPage(1); }}>
+                                <select className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setIngredientsPage(1); }}>
                                     <option value="all">All Status</option>
                                     <option value="good">In Stock</option>
                                     <option value="low">Low Stock</option>
                                     <option value="critical">Critical</option>
                                     <option value="out_of_stock">Out of Stock</option>
                                 </select>
-                                <select id="poolFilter" name="poolFilter" className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterPool} onChange={(e) => { setFilterPool(e.target.value); setIngredientsPage(1); }}>
+                                <select className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterPool} onChange={(e) => { setFilterPool(e.target.value); setIngredientsPage(1); }}>
                                     <option value="all">All Pools</option>
                                     <option value="resto">Restaurant</option>
                                     <option value="kitchen">Kitchen</option>
@@ -1231,12 +1317,10 @@ export default function Inventory({ auth }) {
                                                             {ing.pool === 'resto' ? 'Restaurant' : 'Kitchen'}
                                                         </span>
                                                     </td>
-                                                    <td className="px-3 py-2 text-center font-mono">{Math.floor(ing.current_stock)}</td>
-                                                    <td className="px-3 py-2 text-center text-green-600">
-                                                        {formatPriceRange(ing.price_range)}
-                                                    </td>
+                                                    <td className="px-3 py-2 text-center font-mono">{formatNumber(ing.current_stock)}</td>
+                                                    <td className="px-3 py-2 text-center text-green-600">{formatPriceRange(ing.price_range)}</td>
                                                     <td className="px-3 py-2 text-center font-medium text-blue-600">{formatPrice((ing.current_stock || 0) * (ing.cost_per_unit || 0))}</td>
-                                                    <td className="px-3 py-2 text-center">{Math.floor(ing.min_stock)}</td>
+                                                    <td className="px-3 py-2 text-center">{formatNumber(ing.min_stock)}</td>
                                                     <td className="px-3 py-2 text-center">
                                                         <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${getStatusColor(ing.status)}`}>
                                                             {getStatusText(ing.status)}
@@ -1334,7 +1418,7 @@ export default function Inventory({ auth }) {
                                                     <div className="mt-1 flex flex-wrap gap-1">
                                                         {receipt.items?.slice(0, 3).map((item, idx) => (
                                                             <span key={idx} className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
-                                                                {item.ingredient?.name} ({Math.floor(item.quantity)})
+                                                                {item.ingredient?.name} ({formatNumber(item.quantity)})
                                                             </span>
                                                         ))}
                                                         {receipt.items?.length > 3 && <span className="text-xs text-gray-400">+{receipt.items.length - 3} more</span>}
@@ -1403,9 +1487,9 @@ export default function Inventory({ auth }) {
                                                 </div>
                                                 <div className="text-right">
                                                     <div className="font-semibold text-sm">
-                                                        {movement.type === 'transfer' ? `${movement.quantity} ${movement.unit || ''}` : 
-                                                         movement.type === 'stock_take' ? `${movement.quantity_delta > 0 ? '+' : ''}${movement.quantity_delta} ${movement.unit || ''}` :
-                                                         `-${movement.quantity} ${movement.unit || ''}`}
+                                                        {movement.type === 'transfer' ? `${formatNumber(movement.quantity)} ${movement.unit || ''}` : 
+                                                         movement.type === 'stock_take' ? `${movement.quantity_delta > 0 ? '+' : ''}${formatNumber(movement.quantity_delta)} ${movement.unit || ''}` :
+                                                         `-${formatNumber(movement.quantity)} ${movement.unit || ''}`}
                                                     </div>
                                                     <div className="text-xs text-gray-400">{movement.user} · {new Date(movement.date).toLocaleDateString()}</div>
                                                 </div>
@@ -1447,7 +1531,7 @@ export default function Inventory({ auth }) {
                                                     <td className="px-3 py-2 text-center">{record.pool}</td>
                                                     <td className="px-3 py-2 text-center">
                                                         <span className={`font-mono font-semibold ${record.quantity_delta > 0 ? 'text-green-700' : record.quantity_delta < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                                                            {record.quantity_delta > 0 ? '+' : ''}{record.quantity_delta} {record.unit}
+                                                            {record.quantity_delta > 0 ? '+' : ''}{formatNumber(record.quantity_delta)} {record.unit}
                                                         </span>
                                                     </td>
                                                     <td className="px-3 py-2"><span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{record.reason?.replace('_', ' ')}</span></td>
@@ -1504,7 +1588,7 @@ export default function Inventory({ auth }) {
                                         {selectedReceipt.items?.map((item, idx) => (
                                             <tr key={idx} className="hover:bg-gray-50">
                                                 <td className="px-3 py-2 font-medium">{item.ingredient?.name}</td>
-                                                <td className="px-3 py-2 text-center">{parseFloat(item.quantity).toLocaleString()}</td>
+                                                <td className="px-3 py-2 text-center">{formatNumber(item.quantity)}</td>
                                                 <td className="px-3 py-2 text-center text-gray-500">{item.ingredient?.unit || 'unit'}</td>
                                                 <td className="px-3 py-2 text-center text-green-600">{formatPrice(item.cost_per_unit)}</td>
                                                 <td className="px-3 py-2 text-right font-medium text-blue-600">{formatPrice(parseFloat(item.quantity) * parseFloat(item.cost_per_unit))}</td>
@@ -1529,7 +1613,7 @@ export default function Inventory({ auth }) {
             </Modal>
 
             {/* Add Ingredient Modal */}
-            <Modal isOpen={showAddIngredient} onClose={() => { setShowAddIngredient(false); setFormErrors({}); setCustomCategory(false); setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); }} title="Add Ingredient" subtitle="Create new ingredient or add stock to existing" size="md">
+            <Modal isOpen={showAddIngredient} onClose={() => { setShowAddIngredient(false); setFormErrors({}); setCustomCategory(false); setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); setExistingIngredientData(null); }} title="Add Ingredient" subtitle="Create new ingredient or add stock to existing" size="md">
                 {formErrors.submit && <div className="mb-4 p-2 bg-red-50 border rounded text-red-700 text-xs">{formErrors.submit}</div>}
                 
                 <div className="grid grid-cols-2 gap-3">
@@ -1551,7 +1635,7 @@ export default function Inventory({ auth }) {
                         <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
                         {!customCategory ? (
                             <div className="flex gap-2">
-                                <select id="category" name="category" className="flex-1 px-3 py-2 text-sm border rounded-lg bg-white" value={newIngredient.category} onChange={e => setNewIngredient({...newIngredient, category: e.target.value})}>
+                                <select className="flex-1 px-3 py-2 text-sm border rounded-lg bg-white" value={newIngredient.category} onChange={e => setNewIngredient({...newIngredient, category: e.target.value})}>
                                     <option value="">Select Category</option>
                                     {PREDEFINED_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                 </select>
@@ -1559,7 +1643,7 @@ export default function Inventory({ auth }) {
                             </div>
                         ) : (
                             <div className="flex gap-2">
-                                <input id="customCategory" name="customCategory" type="text" placeholder="Enter custom category" className="flex-1 px-3 py-2 text-sm border rounded-lg" value={newIngredient.category} onChange={e => setNewIngredient({...newIngredient, category: e.target.value})} />
+                                <input type="text" placeholder="Enter custom category" className="flex-1 px-3 py-2 text-sm border rounded-lg" value={newIngredient.category} onChange={e => setNewIngredient({...newIngredient, category: e.target.value})} />
                                 <button type="button" onClick={() => { setCustomCategory(false); setNewIngredient({...newIngredient, category: ''}); }} className="px-3 py-2 bg-gray-100 rounded-lg text-xs hover:bg-gray-200">Back</button>
                             </div>
                         )}
@@ -1568,23 +1652,39 @@ export default function Inventory({ auth }) {
                 </div>
                 
                 <div className="grid grid-cols-3 gap-3">
-                    <Input id="initial_stock" label="Quantity to Add" type="number" step="0.01" value={newIngredient.initial_stock} onChange={e => setNewIngredient({...newIngredient, initial_stock: parseFloat(e.target.value) || 0})} placeholder="Amount to add" />
+                    <Input 
+                        id="initial_stock" 
+                        label={existingIngredientId ? "Quantity to ADD" : "Initial Stock"} 
+                        type="number" 
+                        step="0.01" 
+                        value={newIngredient.initial_stock} 
+                        onChange={e => setNewIngredient({...newIngredient, initial_stock: parseFloat(e.target.value) || 0})} 
+                        placeholder={existingIngredientId ? "Amount to add to existing stock" : "Starting quantity"}
+                        error={formErrors.initial_stock}
+                    />
                     <Input id="min_stock" label="Min Stock Alert" type="number" value={newIngredient.min_stock} onChange={e => setNewIngredient({...newIngredient, min_stock: parseInt(e.target.value) || 0})} placeholder="Minimum stock level" />
                     <Input id="cost_per_unit" label="Cost Per Unit (₱)" type="number" step="0.01" value={newIngredient.cost_per_unit} onChange={e => setNewIngredient({...newIngredient, cost_per_unit: parseFloat(e.target.value) || 0})} placeholder="Current price" />
                 </div>
                 
+                {existingIngredientId && existingIngredientData && (
+                    <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-xs text-blue-700">
+                            <span className="font-semibold">Current stock:</span> {formatNumber(existingIngredientData.current_stock)} {existingIngredientData.unit}<br/>
+                            <span className="font-semibold">After adding:</span> {formatNumber(existingIngredientData.current_stock + (parseFloat(newIngredient.initial_stock) || 0))} {existingIngredientData.unit}
+                        </p>
+                    </div>
+                )}
+                
                 <div className="flex gap-3 mt-6 pt-3 border-t">
                     <Button onClick={addOrUpdateIngredient} variant="primary" className="flex-1" loading={isSubmitting}>
-                        {existingIngredientId ? 'Add Stock' : 'Create Ingredient'}
+                        {existingIngredientId ? `Add ${formatNumber(newIngredient.initial_stock)} ${newIngredient.unit} to Stock` : 'Create Ingredient'}
                     </Button>
-                    <Button onClick={() => { setShowAddIngredient(false); setFormErrors({}); setCustomCategory(false); setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); }} variant="secondary" className="flex-1">Cancel</Button>
+                    <Button onClick={() => { setShowAddIngredient(false); setFormErrors({}); setCustomCategory(false); setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); setExistingIngredientData(null); }} variant="secondary" className="flex-1">Cancel</Button>
                 </div>
             </Modal>
 
             {/* Edit Ingredient Modal */}
             <Modal isOpen={showEditIngredient} onClose={() => { setShowEditIngredient(false); setFormErrors({}); }} title="Edit Ingredient" subtitle="Update ingredient details" size="md">
-                {formErrors.submit && <div className="mb-4 p-2 bg-red-50 border rounded text-red-700 text-xs">{formErrors.submit}</div>}
-                
                 <div className="bg-yellow-50 rounded-lg p-2 mb-4 text-xs text-yellow-700">
                     Note: Use Bulk Update or Stock Movements to change stock levels.
                 </div>
@@ -1595,35 +1695,34 @@ export default function Inventory({ auth }) {
                 </div>
                 
                 <div className="grid grid-cols-2 gap-3">
-                    <Select 
-                        id="edit_category"
-                        label="Category" 
-                        value={editIngredientData.category || ''} 
-                        onChange={(e) => {
-                            console.log('Category changed to:', e.target.value);
-                            setEditIngredientData({...editIngredientData, category: e.target.value});
-                        }} 
-                        options={[{ value: '', label: '-- Select Category --' }, ...PREDEFINED_CATEGORIES.map(cat => ({ value: cat, label: cat }))]} 
-                    />
-                    <Select 
-                        id="edit_pool"
-                        label="Pool" 
-                        value={editIngredientData.pool} 
-                        onChange={e => setEditIngredientData({...editIngredientData, pool: e.target.value})} 
-                        options={[{ value: 'resto', label: 'Restaurant' }, { value: 'kitchen', label: 'Kitchen' }]} 
-                        required 
-                    />
+                    <div className="mb-4">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
+                        <select
+                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                            value={editIngredientData.category || ''}
+                            onChange={(e) => setEditIngredientData({...editIngredientData, category: e.target.value})}
+                        >
+                            <option value="">-- Select Category --</option>
+                            {PREDEFINED_CATEGORIES.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                            {editIngredientData.category && !PREDEFINED_CATEGORIES.includes(editIngredientData.category) && (
+                                <option value={editIngredientData.category}>{editIngredientData.category}</option>
+                            )}
+                        </select>
+                    </div>
+                    <Select id="edit_pool" label="Pool" value={editIngredientData.pool} onChange={e => setEditIngredientData({...editIngredientData, pool: e.target.value})} options={[{ value: 'resto', label: 'Restaurant' }, { value: 'kitchen', label: 'Kitchen' }]} required />
                 </div>
                 
                 <div className="grid grid-cols-2 gap-3">
-                    <Input id="edit_min_stock" label="Min Stock" type="number" value={editIngredientData.min_stock} onChange={e => setEditIngredientData({...editIngredientData, min_stock: parseInt(e.target.value) || 0})} />
+                    <Input id="edit_min_stock" label="Min Stock" type="number" step="0.01" value={editIngredientData.min_stock} onChange={e => setEditIngredientData({...editIngredientData, min_stock: parseFloat(e.target.value) || 0})} />
                     <Input id="edit_cost_per_unit" label="Cost Per Unit (₱)" type="number" step="0.01" value={editIngredientData.cost_per_unit} onChange={e => setEditIngredientData({...editIngredientData, cost_per_unit: parseFloat(e.target.value) || 0})} />
                 </div>
                 
                 <div className="mb-4">
                     <label className="block text-xs font-medium text-gray-700 mb-1">Current Stock (Read Only)</label>
                     <div className="px-3 py-2 bg-gray-100 border rounded-lg text-sm font-mono">
-                        {Math.floor(editIngredientData.current_stock)} {editIngredientData.unit}
+                        {formatNumber(editIngredientData.current_stock)} {editIngredientData.unit}
                     </div>
                     <p className="text-xs text-gray-400 mt-1">Use Bulk Update or Record Movement to change stock levels</p>
                 </div>
@@ -1679,6 +1778,12 @@ export default function Inventory({ auth }) {
                                         <div className="col-span-5">
                                             <label className="block text-xs font-medium text-gray-600 mb-0.5">Ingredient</label>
                                             <IngredientSearchInput value={item.ingredient_id} ingredients={ingredients} onSelect={(id) => updateBulkItem(index, 'ingredient_id', id)} />
+                                            {selectedIngredient && (
+                                                <div className="text-xs text-gray-400 mt-1">
+                                                    Current stock: {formatNumber(selectedIngredient.current_stock)} {selectedIngredient.unit}
+                                                    <span className="ml-2 text-green-600">After: {formatNumber(selectedIngredient.current_stock + quantity)} {selectedIngredient.unit}</span>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="col-span-2">
                                             <label className="block text-xs font-medium text-gray-600 mb-0.5">Quantity</label>
@@ -1767,7 +1872,7 @@ export default function Inventory({ auth }) {
 
                 {selectedMovementType === 'return' && (
                     <>
-                        <Select id="return_ingredient" label="Ingredient" value={stockReturnForm.ingredient_id} onChange={e => setStockReturnForm({...stockReturnForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — stock: ${Math.floor(i.current_stock)}`}))]} required />
+                        <Select id="return_ingredient" label="Ingredient" value={stockReturnForm.ingredient_id} onChange={e => setStockReturnForm({...stockReturnForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — stock: ${formatNumber(i.current_stock)}`}))]} required />
                         <Select id="return_pool" label="Pool" value={stockReturnForm.pool} onChange={e => setStockReturnForm({...stockReturnForm, pool: e.target.value})} options={[{value:'resto',label:'Restaurant'},{value:'kitchen',label:'Kitchen'}]} />
                         <Input id="return_quantity" label="Quantity to Return" type="number" step="0.01" value={stockReturnForm.quantity} onChange={e => setStockReturnForm({...stockReturnForm, quantity: e.target.value})} required />
                         <Input id="return_reason" label="Reason" value={stockReturnForm.reason} onChange={e => setStockReturnForm({...stockReturnForm, reason: e.target.value})} placeholder="e.g., Damaged goods, Over-ordered" />
@@ -1781,7 +1886,7 @@ export default function Inventory({ auth }) {
 
                 {selectedMovementType === 'loss' && (
                     <>
-                        <Select id="loss_ingredient" label="Ingredient" value={stockLossForm.ingredient_id} onChange={e => setStockLossForm({...stockLossForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — stock: ${Math.floor(i.current_stock)}`}))]} required />
+                        <Select id="loss_ingredient" label="Ingredient" value={stockLossForm.ingredient_id} onChange={e => setStockLossForm({...stockLossForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — stock: ${formatNumber(i.current_stock)}`}))]} required />
                         <Select id="loss_pool" label="Pool" value={stockLossForm.pool} onChange={e => setStockLossForm({...stockLossForm, pool: e.target.value})} options={[{value:'resto',label:'Restaurant'},{value:'kitchen',label:'Kitchen'}]} />
                         <Input id="loss_quantity" label="Quantity Lost" type="number" step="0.01" value={stockLossForm.quantity} onChange={e => setStockLossForm({...stockLossForm, quantity: e.target.value})} required />
                         <Select id="loss_type" label="Loss Type" value={stockLossForm.loss_type} onChange={e => setStockLossForm({...stockLossForm, loss_type: e.target.value})} options={[{value:'spoilage',label:'Spoilage'},{value:'breakage',label:'Breakage'},{value:'theft',label:'Theft'},{value:'other',label:'Other'}]} />
@@ -1795,7 +1900,7 @@ export default function Inventory({ auth }) {
 
                 {selectedMovementType === 'transfer' && (
                     <>
-                        <Select id="transfer_ingredient" label="Ingredient" value={stockTransferForm.ingredient_id} onChange={e => setStockTransferForm({...stockTransferForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — ${i.pool}: ${Math.floor(i.current_stock)}`}))]} required />
+                        <Select id="transfer_ingredient" label="Ingredient" value={stockTransferForm.ingredient_id} onChange={e => setStockTransferForm({...stockTransferForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — ${i.pool}: ${formatNumber(i.current_stock)}`}))]} required />
                         <div className="grid grid-cols-2 gap-3">
                             <Select id="transfer_from_pool" label="From Pool" value={stockTransferForm.from_pool} onChange={e => setStockTransferForm({...stockTransferForm, from_pool: e.target.value})} options={[{value:'resto',label:'Restaurant'},{value:'kitchen',label:'Kitchen'}]} />
                             <Select id="transfer_to_pool" label="To Pool" value={stockTransferForm.to_pool} onChange={e => setStockTransferForm({...stockTransferForm, to_pool: e.target.value})} options={[{value:'resto',label:'Restaurant'},{value:'kitchen',label:'Kitchen'}]} />
@@ -1811,7 +1916,7 @@ export default function Inventory({ auth }) {
 
                 {selectedMovementType === 'wastage' && (
                     <>
-                        <Select id="wastage_ingredient" label="Ingredient" value={wastageForm.ingredient_id} onChange={e => setWastageForm({...wastageForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — stock: ${Math.floor(i.current_stock)}`}))]} required />
+                        <Select id="wastage_ingredient" label="Ingredient" value={wastageForm.ingredient_id} onChange={e => setWastageForm({...wastageForm, ingredient_id: e.target.value})} options={[{value:'',label:'Select ingredient'}, ...ingredients.map(i => ({value:i.id, label:`${i.name} (${i.unit}) — stock: ${formatNumber(i.current_stock)}`}))]} required />
                         <Select id="wastage_pool" label="Pool" value={wastageForm.pool} onChange={e => setWastageForm({...wastageForm, pool: e.target.value})} options={[{value:'resto',label:'Restaurant'},{value:'kitchen',label:'Kitchen'}]} />
                         <Input id="wastage_quantity" label="Quantity Wasted" type="number" step="0.01" value={wastageForm.quantity} onChange={e => setWastageForm({...wastageForm, quantity: e.target.value})} required />
                         <Input id="wastage_reason" label="Wastage Reason" value={wastageForm.wastage_reason} onChange={e => setWastageForm({...wastageForm, wastage_reason: e.target.value})} placeholder="e.g., Expired, Over-cooked, Dropped" />
@@ -1849,7 +1954,7 @@ export default function Inventory({ auth }) {
                                                 </select>
                                             </div>
                                             <div className="col-span-2 text-center text-xs text-gray-400">
-                                                System: <span className="font-semibold">{ing ? Math.floor(ing.current_stock) : '—'}</span>
+                                                System: <span className="font-semibold">{ing ? formatNumber(ing.current_stock) : '—'}</span>
                                             </div>
                                             <div className="col-span-2">
                                                 <input type="number" step="0.01" placeholder="Counted" value={item.counted_quantity} onChange={e => updateStockTakeItem(idx, 'counted_quantity', e.target.value)} className="w-full px-2 py-1.5 border rounded text-sm text-center" />
@@ -1906,10 +2011,10 @@ export default function Inventory({ auth }) {
                                         <span className="font-bold text-green-800">Available</span>
                                     </div>
                                     <div className="space-y-2 text-green-700">
-                                        <p className="text-sm">Can make <strong>{checkQuantity}</strong> {checkingItem.name}</p>
+                                        <p className="text-sm">Can make <strong>{formatNumber(checkQuantity)}</strong> {checkingItem.name}</p>
                                         <p className="text-sm">Total cost: <strong className="text-lg">{formatPrice(checkResult.total_cost)}</strong></p>
                                         {checkResult.max_possible > 0 && (
-                                            <p className="text-sm">Max possible: <strong>{checkResult.max_possible}</strong></p>
+                                            <p className="text-sm">Max possible: <strong>{formatNumber(checkResult.max_possible)}</strong></p>
                                         )}
                                     </div>
                                 </div>
@@ -1925,7 +2030,7 @@ export default function Inventory({ auth }) {
                                             {checkResult.insufficient_ingredients?.map(ing => (
                                                 <li key={ing.id} className="flex justify-between">
                                                     <span>{ing.name}:</span>
-                                                    <span className="font-mono">Need {parseFloat(ing.required).toFixed(2)} {ing.unit}, have {parseFloat(ing.available).toFixed(2)}</span>
+                                                    <span className="font-mono">Need {formatNumber(ing.required)} {ing.unit}, have {formatNumber(ing.available)}</span>
                                                 </li>
                                             ))}
                                         </ul>

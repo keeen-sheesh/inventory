@@ -30,7 +30,7 @@ Route::get('/', function () {
             'admin'         => '/admin/dashboard',
             'manager'       => '/admin/dashboard',
             'cashier'       => '/cashier/pos',
-            'resto'         => '/cashier/pos', // legacy
+            'resto'         => '/cashier/pos',
             'kitchen'       => '/admin/kitchen',
             'kitchen_resto' => '/admin/kitchen',
             'customer'      => '/menu',
@@ -67,6 +67,29 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
+
+// ==================== MANAGER PASSWORD VERIFICATION ====================
+Route::middleware(['auth'])->post('/manager/verify', function (Illuminate\Http\Request $request) {
+    $password = $request->input('password');
+    
+    if (empty($password)) {
+        return response()->json(['valid' => false, 'message' => 'Password is required'], 400);
+    }
+    
+    $manager = App\Models\User::whereIn('role', ['manager', 'admin'])
+        ->where('is_active', true)
+        ->first();
+    
+    if ($manager && Illuminate\Support\Facades\Hash::check($password, $manager->password)) {
+        return response()->json([
+            'valid' => true, 
+            'manager_name' => $manager->name,
+            'manager_role' => $manager->role
+        ]);
+    }
+    
+    return response()->json(['valid' => false, 'message' => 'Invalid manager password'], 401);
+})->name('manager.verify');
 
 // Kitchen shortcuts for account-specific redirects
 Route::middleware(['auth', 'verified', 'role:kitchen,kitchen_resto,admin,manager'])->prefix('kitchen')->group(function () {
@@ -287,9 +310,12 @@ Route::middleware(['auth', 'verified', 'role:cashier', 'extend.session'])->prefi
 // Kitchen staff and administrators can access the kitchen display
 Route::middleware(['auth', 'verified', 'role:kitchen,kitchen_resto,admin,manager', 'extend.session'])->prefix('admin')->name('admin.')->group(function () {
     Route::prefix('kitchen')->name('kitchen.')->group(function () {
-        // Main kitchen display - NOW USING THE CORRECT CONTROLLER
+        // Main kitchen display - using KitchenOrderController
         Route::get('/', [KitchenOrderController::class, 'index'])->name('index');
-
+        
+        // Get orders with date filtering for kitchen display (API endpoint)
+        Route::get('/orders', [KitchenOrderController::class, 'getOrders'])->name('orders');
+        
         // Polling and real-time
         Route::get('/check-new', [KitchenOrderController::class, 'checkNewOrders'])->name('check-new');
 

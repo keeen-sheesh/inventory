@@ -40,7 +40,8 @@ import {
     ChefHat,
     UserCircle,
     X,
-    Maximize2
+    Maximize2,
+    Printer
 } from 'lucide-react';
 import { formatPHTime } from '@/utils/phTime';
 
@@ -180,28 +181,21 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 15;
 
-    // Filter transactions locally
     const filteredTransactions = allTransactions.filter(transaction => {
-        // Status filter
         const matchesStatus = localFilter === 'all' || transaction.status === localFilter;
-        
-        // Search filter
         const matchesSearch = searchQuery === '' || 
             transaction.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
             transaction.txn_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
             transaction.order_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
             transaction.id?.toString().includes(searchQuery);
-        
         return matchesStatus && matchesSearch;
     });
 
-    // Pagination
     const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
     const indexOfLastItem = currentPage * itemsPerPage;
     const indexOfFirstItem = indexOfLastItem - itemsPerPage;
     const currentTransactions = filteredTransactions.slice(indexOfFirstItem, indexOfLastItem);
 
-    // Reset page when filter changes
     useEffect(() => {
         setCurrentPage(1);
     }, [localFilter, searchQuery]);
@@ -211,7 +205,6 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
-                {/* Header */}
                 <div className="p-6 border-b border-gray-200 bg-gradient-to-r from-blue-500 to-blue-600">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -220,24 +213,17 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                             </div>
                             <div>
                                 <h2 className="text-2xl font-bold text-white">All Transactions</h2>
-                                <p className="text-white/80 text-sm mt-1">
-                                    View and manage all orders
-                                </p>
+                                <p className="text-white/80 text-sm mt-1">View and manage all orders</p>
                             </div>
                         </div>
-                        <button 
-                            onClick={onClose}
-                            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                        >
+                        <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg transition-colors">
                             <X className="w-5 h-5 text-white" />
                         </button>
                     </div>
                 </div>
 
-                {/* Filters */}
                 <div className="p-6 border-b border-gray-200 bg-gray-50">
                     <div className="flex flex-col md:flex-row gap-4">
-                        {/* Status Filter */}
                         <div className="flex bg-gray-100 rounded-xl overflow-hidden p-0.5 gap-0.5">
                             {['all', 'completed', 'pending', 'preparing', 'ready'].map((filter) => (
                                 <button
@@ -253,8 +239,6 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                                 </button>
                             ))}
                         </div>
-
-                        {/* Search */}
                         <div className="flex-1 relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                             <input
@@ -265,17 +249,12 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                                 className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                             />
                         </div>
-
-                        {/* Results count */}
                         <div className="flex items-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-200">
-                            <span className="text-sm font-medium">
-                                {filteredTransactions.length} results
-                            </span>
+                            <span className="text-sm font-medium">{filteredTransactions.length} results</span>
                         </div>
                     </div>
                 </div>
 
-                {/* Table */}
                 <div className="overflow-y-auto" style={{ maxHeight: 'calc(90vh - 200px)' }}>
                     <table className="w-full">
                         <thead className="bg-gray-50 sticky top-0">
@@ -316,25 +295,19 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                                                         {displayOrderLabel(transaction)}
                                                     </span>
                                                     {transaction.is_hotel && (
-                                                        <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
-                                                            Hotel
-                                                        </span>
+                                                        <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">Hotel</span>
                                                     )}
                                                     {transaction.is_personal && (
-                                                        <span className="px-2 py-0.5 bg-pink-100 text-pink-700 text-xs font-medium rounded-full">
-                                                            Personal
-                                                        </span>
+                                                        <span className="px-2 py-0.5 bg-pink-100 text-pink-700 text-xs font-medium rounded-full">Personal</span>
                                                     )}
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="space-y-2">
-                                                    {/* Customer */}
                                                     <div className="flex items-center gap-2">
                                                         <User className="w-3 h-3 text-gray-400" />
                                                         <span className="text-sm text-gray-900">{transaction.customer_name}</span>
                                                     </div>
-                                                    {/* Cashier */}
                                                     <div className="flex items-center gap-2">
                                                         <div className={`p-1 rounded ${cashierConfig.bgColor}`}>
                                                             <CashierIcon className={`w-3 h-3 ${cashierConfig.textColor}`} />
@@ -348,13 +321,9 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 text-sm text-gray-600">
-                                                {transaction.items_count} items
-                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-600">{transaction.items_count} items</td>
                                             <td className="px-6 py-4">
-                                                <span className="font-bold text-gray-900">
-                                                    {formatPeso(transaction.total_amount)}
-                                                </span>
+                                                <span className="font-bold text-gray-900">{formatPeso(transaction.total_amount)}</span>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>
@@ -362,9 +331,7 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                                                     {status.label}
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 text-sm text-gray-500">
-                                                {formatPHTime(transaction.created_at)}
-                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-500">{formatPHTime(transaction.created_at)}</td>
                                             <td className="px-6 py-4">
                                                 <button className="p-1 hover:bg-gray-100 rounded-lg">
                                                     <MoreHorizontal className="w-4 h-4 text-gray-400" />
@@ -388,7 +355,6 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                     </table>
                 </div>
 
-                {/* Pagination */}
                 {totalPages > 1 && (
                     <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
                         <p className="text-sm text-gray-500">
@@ -404,9 +370,7 @@ const ViewAllModal = ({ isOpen, onClose, allTransactions = [], onViewDetails }) 
                             >
                                 Previous
                             </button>
-                            <span className="px-4 py-1 bg-blue-600 text-white rounded-lg font-medium">
-                                {currentPage}
-                            </span>
+                            <span className="px-4 py-1 bg-blue-600 text-white rounded-lg font-medium">{currentPage}</span>
                             <button
                                 onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
                                 disabled={currentPage === totalPages}
@@ -432,7 +396,7 @@ export default function Dashboard({
     paymentMethodBreakdown,
     orderTypeBreakdown,
     filters,
-    allTransactions = [] // Add this prop for all transactions
+    allTransactions = []
 }) {
     const [activeModal, setActiveModal] = useState(null);
     const [modalData, setModalData] = useState(null);
@@ -448,27 +412,11 @@ export default function Dashboard({
     const [showViewAllModal, setShowViewAllModal] = useState(false);
     const [showReceipt, setShowReceipt] = useState(false);
     
-    // Local filtered transactions (no refresh needed)
     const [localTransactions, setLocalTransactions] = useState(recentSales.data || []);
-    
-    // Update local transactions when filter changes (client-side only)
-    useEffect(() => {
-        if (transactionFilter === 'all') {
-            setLocalTransactions(recentSales.data || []);
-        } else {
-            const filtered = (recentSales.data || []).filter(
-                sale => sale.status === transactionFilter
-            );
-            setLocalTransactions(filtered);
-        }
-    }, [transactionFilter, recentSales.data]);
-    
-    // Pagination
     const [currentPage, setCurrentPage] = useState(recentSales.current_page || 1);
     
     const unreadCount = 0;
     
-    // Date range options
     const dateRangeOptions = [
         { value: 'today', label: 'Today', icon: Calendar },
         { value: 'yesterday', label: 'Yesterday', icon: Calendar },
@@ -481,7 +429,17 @@ export default function Dashboard({
     
     const selectedRangeLabel = dateRangeOptions.find(opt => opt.value === dateRange)?.label || 'Today';
     
-    // Handle date range change
+    useEffect(() => {
+        if (transactionFilter === 'all') {
+            setLocalTransactions(recentSales.data || []);
+        } else {
+            const filtered = (recentSales.data || []).filter(
+                sale => sale.status === transactionFilter
+            );
+            setLocalTransactions(filtered);
+        }
+    }, [transactionFilter, recentSales.data]);
+    
     const handleDateRangeChange = (range) => {
         setDateRange(range);
         setShowDateDropdown(false);
@@ -499,7 +457,6 @@ export default function Dashboard({
         }
     };
     
-    // Apply custom date range
     const applyCustomDateRange = () => {
         if (customDateFrom && customDateTo) {
             setShowCustomDatePicker(false);
@@ -515,7 +472,6 @@ export default function Dashboard({
         }
     };
     
-    // Handle modal actions
     const handleModalAction = (action, data) => {
         switch (action) {
             case 'view-order':
@@ -530,7 +486,6 @@ export default function Dashboard({
         }
     };
     
-    // Fetch transaction details
     const fetchTransactionDetails = async (orderId) => {
         setIsLoadingTransaction(true);
         try {
@@ -545,25 +500,21 @@ export default function Dashboard({
         }
     };
     
-    // Handle refresh
     const handleRefresh = () => {
         router.reload({ only: ['stats', 'recentSales', 'topItems'] });
     };
     
-    // Open modal with data
     const openModal = (modalName, data = null) => {
         setActiveModal(modalName);
         setModalData(data);
     };
     
-    // Close modal
     const closeModal = () => {
         setActiveModal(null);
         setModalData(null);
         setSelectedTransaction(null);
     };
     
-    // Handle page change
     const goToPage = (page) => {
         setCurrentPage(page);
         router.get('/admin/dashboard', { 
@@ -579,18 +530,16 @@ export default function Dashboard({
         });
     };
     
-    // Handle filter change (client-side only - no refresh)
     const handleFilterChange = (filter) => {
         setTransactionFilter(filter);
-        setCurrentPage(1); // Reset to first page when filter changes
+        setCurrentPage(1);
     };
     
-    // Handle view all
     const handleViewAll = () => {
         setShowViewAllModal(true);
     };
     
-    // Order Details Modal
+    // Order Details Modal - Changed to OFFICIAL RECEIPT layout
     const OrderDetailsModal = () => {
         if (!selectedTransaction) return null;
         
@@ -599,98 +548,140 @@ export default function Dashboard({
         const StatusIcon = statusBadge.icon;
         const OrderTypeIcon = getOrderTypeInfo(transaction.order_type).icon;
         
+        const formatReceiptPrice = (price) => {
+            const num = Number(price) || 0;
+            return `₱${num.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        };
+        
         return (
-            <Modal isOpen={activeModal === 'order-details'} onClose={closeModal} title={`Order ${displayOrderLabel(transaction)}`} size="lg">
-                <div className="space-y-6">
+            <Modal isOpen={activeModal === 'order-details'} onClose={closeModal} title="OFFICIAL RECEIPT" size="md">
+                <div className="space-y-4 font-mono text-sm">
                     {/* Header */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${getOrderTypeInfo(transaction.order_type).bg}`}>
-                                <OrderTypeIcon className={`w-5 h-5 ${getOrderTypeInfo(transaction.order_type).text}`} />
-                            </div>
-                            <div>
-                                <p className="text-sm text-gray-500">Order Type</p>
-                                <p className="font-medium text-gray-900">{getOrderTypeInfo(transaction.order_type).label}</p>
-                            </div>
-                        </div>
-                        <div className={`px-3 py-1 rounded-full flex items-center gap-2 ${statusBadge.bg} ${statusBadge.text}`}>
-                            <StatusIcon className="w-4 h-4" />
-                            <span className="text-sm font-medium">{statusBadge.label}</span>
-                        </div>
+                    <div className="text-center border-b pb-4">
+                        <div className="font-bold text-lg">CJ BREW & DINE</div>
+                        <div className="text-xs text-gray-500">Restobar System</div>
+                        <div className="text-xs text-gray-400 mt-1">{transaction.created_at_formatted}</div>
                     </div>
                     
-                    {/* Customer Info */}
-                    <div className="grid grid-cols-2 gap-6 p-4 bg-gray-50 rounded-lg">
-                        <div>
-                            <p className="text-xs text-gray-500 mb-1">Customer</p>
-                            <p className="font-medium text-gray-900">{transaction.customer_name}</p>
-                            {transaction.room_number && (
-                                <p className="text-sm text-amber-600 mt-1">Room #{transaction.room_number}</p>
-                            )}
+                    {/* Receipt Info */}
+                    <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                            <span className="font-bold">Order #:</span>
+                            <span>{transaction.order_number || transaction.txn_number}</span>
                         </div>
-                        <div>
-                            <p className="text-xs text-gray-500 mb-1">Date & Time</p>
-                            <p className="font-medium text-gray-900">{transaction.created_at_formatted}</p>
-                            {transaction.user && (
-                                <p className="text-sm text-gray-500 mt-1">Cashier: {transaction.user}</p>
-                            )}
+                        <div className="flex justify-between">
+                            <span>Cashier:</span>
+                            <span>{transaction.user || 'Admin'}</span>
                         </div>
-                    </div>
-                    
-                    {/* Items */}
-                    <div>
-                        <h4 className="text-sm font-semibold text-gray-900 mb-3">Order Items</h4>
-                        <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-200">
-                            {transaction.items.map((item, index) => (
-                                <div key={index} className="p-4 hover:bg-gray-50">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="font-medium text-gray-900">{item.name}</p>
-                                            <p className="text-sm text-gray-500">
-                                                {item.quantity} x {formatPeso(item.unit_price)}
-                                            </p>
-                                        </div>
-                                        <p className="font-bold text-gray-900">{formatPeso(item.total_price)}</p>
-                                    </div>
-                                    {item.special_instructions && (
-                                        <p className="text-xs text-amber-600 mt-2 bg-amber-50 p-2 rounded">
-                                            📝 {item.special_instructions}
-                                        </p>
-                                    )}
-                                </div>
-                            ))}
+                        <div className="flex justify-between">
+                            <span>Customer:</span>
+                            <span>{transaction.customer_name || 'Walk-in Customer'}</span>
                         </div>
-                    </div>
-                    
-                    {/* Totals */}
-                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                        <div className="flex justify-between text-sm">
-                            <span className="text-gray-600">Subtotal</span>
-                            <span className="text-gray-900">{formatPeso(transaction.subtotal)}</span>
+                        <div className="flex justify-between">
+                            <span>Payment:</span>
+                            <span>{transaction.payment_method || 'Cash'}</span>
                         </div>
-                        {transaction.discount_amount > 0 && (
-                            <div className="flex justify-between text-sm">
-                                <span className="text-gray-600">Discount</span>
-                                <span className="text-red-500 font-medium">-{formatPeso(transaction.discount_amount)}</span>
+                        {transaction.room_number && (
+                            <div className="flex justify-between">
+                                <span>Room:</span>
+                                <span>#{transaction.room_number}</span>
                             </div>
                         )}
-                        <div className="border-t border-gray-200 pt-2 mt-2">
-                            <div className="flex justify-between items-center">
-                                <span className="font-bold text-gray-900">Total</span>
-                                <span className="text-xl font-bold text-blue-600">{formatPeso(transaction.total_amount)}</span>
+                        <div className="flex justify-between">
+                            <span>Status:</span>
+                            <span className={`flex items-center gap-1 ${statusBadge.text}`}>
+                                <StatusIcon className="w-3 h-3" />
+                                {statusBadge.label}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div className="border-t border-dashed my-2"></div>
+                    
+                    {/* Items Header */}
+                    <div className="font-bold text-center">OFFICIAL RECEIPT</div>
+                    <div className="border-t border-dashed my-2"></div>
+                    
+                    {/* Items */}
+                    <div className="space-y-2">
+                        <div className="font-bold">ITEMS</div>
+                        {transaction.items && transaction.items.map((item, index) => (
+                            <div key={index} className="space-y-0.5">
+                                <div>{item.name}</div>
+                                <div className="flex justify-between text-xs text-gray-500 ml-2">
+                                    <span>{item.quantity} x {formatReceiptPrice(item.unit_price)}</span>
+                                    <span>{formatReceiptPrice(item.total_price)}</span>
+                                </div>
+                                {item.special_instructions && (
+                                    <div className="text-xs text-amber-600 ml-2">📝 {item.special_instructions}</div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="border-t border-dashed my-2"></div>
+                    
+                    {/* Totals */}
+                    <div className="space-y-1">
+                        <div className="flex justify-between">
+                            <span>SUBTOTAL</span>
+                            <span>{formatReceiptPrice(transaction.subtotal)}</span>
+                        </div>
+                        {transaction.discount_amount > 0 && (
+                            <div className="flex justify-between">
+                                <span>DISCOUNT</span>
+                                <span>-{formatReceiptPrice(transaction.discount_amount)}</span>
+                            </div>
+                        )}
+                        {transaction.tax_amount > 0 && (
+                            <div className="flex justify-between">
+                                <span>VAT (12%)</span>
+                                <span>{formatReceiptPrice(transaction.tax_amount)}</span>
+                            </div>
+                        )}
+                    </div>
+                    
+                    <div className="border-t-2 border-gray-800 my-2"></div>
+                    
+                    <div className="flex justify-between font-bold text-base">
+                        <span>TOTAL</span>
+                        <span>{formatReceiptPrice(transaction.total_amount)}</span>
+                    </div>
+                    
+                    <div className="border-t-2 border-gray-800 my-2"></div>
+                    
+                    {/* Cash */}
+                    {transaction.cash_received && (
+                        <div className="space-y-1">
+                            <div className="flex justify-between">
+                                <span>CASH RECEIVED</span>
+                                <span>{formatReceiptPrice(transaction.cash_received)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>CHANGE DUE</span>
+                                <span>{formatReceiptPrice(transaction.change_due || 0)}</span>
                             </div>
                         </div>
+                    )}
+                    
+                    <div className="border-t border-dashed my-2"></div>
+                    
+                    {/* Footer */}
+                    <div className="text-center text-xs">
+                        <div>Thank you for dining with us!</div>
+                        <div>Please come again</div>
+                        <div className="mt-2">This serves as your</div>
+                        <div className="font-bold">OFFICIAL RECEIPT</div>
                     </div>
                     
                     {/* Actions */}
-                    <div className="flex justify-end gap-3">
-                        <button onClick={() => setShowReceipt(true)} className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2">
-                            <span>🖨️</span>
+                    <div className="flex justify-end gap-3 pt-4 border-t">
+                        <button 
+                            onClick={() => setShowReceipt(true)} 
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                        >
+                            <Printer className="w-4 h-4" />
                             Print Receipt
-                        </button>
-                        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-                            <ShoppingBag className="w-4 h-4" />
-                            Reorder
                         </button>
                     </div>
                 </div>
@@ -702,11 +693,8 @@ export default function Dashboard({
     const ItemDetailsModal = () => (
         <Modal isOpen={activeModal === 'item-details'} onClose={closeModal} title={modalData?.itemName || "Item Details"} size="md">
             <div className="space-y-6">
-                {/* Item Header */}
                 <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center text-white text-2xl">
-                        🍕
-                    </div>
+                    <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center text-white text-2xl">🍕</div>
                     <div>
                         <h3 className="font-bold text-xl text-gray-900">{modalData?.itemName || "Pepperoni Pizza"}</h3>
                         <p className="text-gray-500">Menu Item</p>
@@ -714,7 +702,6 @@ export default function Dashboard({
                     </div>
                 </div>
                 
-                {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-4">
                     <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
                         <p className="text-xs text-emerald-600 mb-1">Today's Sales</p>
@@ -741,7 +728,6 @@ export default function Dashboard({
                     </div>
                 </div>
                 
-                {/* Quick Actions */}
                 <div>
                     <h4 className="text-sm font-semibold text-gray-900 mb-3">Quick Actions</h4>
                     <div className="grid grid-cols-2 gap-3">
@@ -782,14 +768,14 @@ export default function Dashboard({
                     <button
                         onClick={() => goToPage(recentSales.current_page - 1)}
                         disabled={recentSales.current_page === 1}
-                        className="px-3 py-1 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent"
+                        className="px-3 py-1 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                     >
                         Previous
                     </button>
                     <button
                         onClick={() => goToPage(recentSales.current_page + 1)}
                         disabled={recentSales.current_page === recentSales.last_page}
-                        className="px-3 py-1 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:hover:bg-transparent"
+                        className="px-3 py-1 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                     >
                         Next
                     </button>
@@ -813,7 +799,6 @@ export default function Dashboard({
                         <span className="text-xs text-gray-400 ml-1">· Last 7 days</span>
                     </div>
                     
-                    {/* Chart View Toggle */}
                     <div className="flex bg-gray-100 p-1 rounded-lg">
                         <button
                             onClick={() => setSelectedChartView('revenue')}
@@ -882,7 +867,6 @@ export default function Dashboard({
         <AdminLayout auth={auth}>
             <Head title="Dashboard" />
             
-            {/* Modals */}
             <DashboardModals 
                 activeModal={activeModal}
                 onClose={closeModal}
@@ -930,13 +914,10 @@ export default function Dashboard({
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-                        <p className="text-sm text-gray-400 mt-0.5">
-                            Welcome back, {auth.user.name}
-                        </p>
+                        <p className="text-sm text-gray-400 mt-0.5">Welcome back, {auth.user.name}</p>
                     </div>
                     
                     <div className="flex items-center gap-3">
-                        {/* Date Range Dropdown */}
                         <div className="relative">
                             <button
                                 onClick={() => setShowDateDropdown(!showDateDropdown)}
@@ -965,7 +946,6 @@ export default function Dashboard({
                             )}
                         </div>
                         
-                        {/* Custom Date Picker */}
                         {showCustomDatePicker && (
                             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                                 <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full">
@@ -990,30 +970,15 @@ export default function Dashboard({
                                             />
                                         </div>
                                         <div className="flex gap-3 pt-4">
-                                            <button
-                                                onClick={() => setShowCustomDatePicker(false)}
-                                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-                                            >
-                                                Cancel
-                                            </button>
-                                            <button
-                                                onClick={applyCustomDateRange}
-                                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                                            >
-                                                Apply
-                                            </button>
+                                            <button onClick={() => setShowCustomDatePicker(false)} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button>
+                                            <button onClick={applyCustomDateRange} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Apply</button>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         )}
                         
-                        {/* Refresh Button */}
-                        <button
-                            onClick={handleRefresh}
-                            className="p-2 bg-white border border-gray-200 rounded-xl hover:border-gray-300 transition-colors"
-                            title="Refresh"
-                        >
+                        <button onClick={handleRefresh} className="p-2 bg-white border border-gray-200 rounded-xl hover:border-gray-300 transition-colors" title="Refresh">
                             <RefreshCw className="w-4 h-4 text-gray-600" />
                         </button>
                     </div>
@@ -1025,38 +990,23 @@ export default function Dashboard({
                 <div className="grid grid-cols-2 gap-3 mb-5">
                     {stats.lowStockItems > 0 && (
                         <div className="bg-amber-50 border border-amber-100 rounded-xl p-3.5 flex items-center gap-3">
-                            <div className="p-2 bg-amber-100 rounded-lg shrink-0">
-                                <Package className="w-4 h-4 text-amber-600" />
-                            </div>
+                            <div className="p-2 bg-amber-100 rounded-lg shrink-0"><Package className="w-4 h-4 text-amber-600" /></div>
                             <div className="flex-1">
-                                <p className="font-medium text-amber-800">
-                                    {stats.lowStockItems} {stats.lowStockItems === 1 ? 'item' : 'items'} low in stock
-                                </p>
+                                <p className="font-medium text-amber-800">{stats.lowStockItems} {stats.lowStockItems === 1 ? 'item' : 'items'} low in stock</p>
                                 <p className="text-sm text-amber-600 mt-1">Restock soon to avoid running out</p>
                             </div>
-                            <button className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium">
-                                View Inventory
-                            </button>
+                            <button className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium">View Inventory</button>
                         </div>
                     )}
                     
                     {stats.pendingOrders > 0 && (
                         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-4">
-                            <div className="p-3 bg-blue-100 rounded-lg">
-                                <Clock className="w-5 h-5 text-blue-600" />
-                            </div>
+                            <div className="p-3 bg-blue-100 rounded-lg"><Clock className="w-5 h-5 text-blue-600" /></div>
                             <div className="flex-1">
-                                <p className="font-medium text-blue-800">
-                                    {stats.pendingOrders} {stats.pendingOrders === 1 ? 'order' : 'orders'} pending
-                                </p>
+                                <p className="font-medium text-blue-800">{stats.pendingOrders} {stats.pendingOrders === 1 ? 'order' : 'orders'} pending</p>
                                 <p className="text-sm text-blue-600 mt-1">Requires attention in kitchen</p>
                             </div>
-                            <button 
-                                onClick={() => router.visit('/admin/kitchen')}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-                            >
-                                View Kitchen
-                            </button>
+                            <button onClick={() => router.visit('/admin/kitchen')} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">View Kitchen</button>
                         </div>
                     )}
                 </div>
@@ -1064,62 +1014,40 @@ export default function Dashboard({
             
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                {/* Revenue Card */}
                 <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-amber-200 hover:shadow-md transition-all">
                     <div className="flex items-center justify-between mb-3">
-                        <div className="p-2.5 bg-amber-50 rounded-xl">
-                            <DollarSign className="w-4 h-4 text-amber-600" />
-                        </div>
-                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                            Revenue
-                        </span>
+                        <div className="p-2.5 bg-amber-50 rounded-xl"><DollarSign className="w-4 h-4 text-amber-600" /></div>
+                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Revenue</span>
                     </div>
                     <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total Revenue</p>
                     <p className="text-2xl font-bold text-gray-900 tracking-tight">{formatPeso(stats.totalSales)}</p>
                     <p className="text-xs text-gray-400 mt-2">Avg {formatPeso(stats.averageOrderValue)} · {stats.completedOrders} orders</p>
                 </div>
                 
-                {/* Orders Card */}
                 <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-emerald-200 hover:shadow-md transition-all">
                     <div className="flex items-center justify-between mb-3">
-                        <div className="p-2.5 bg-emerald-50 rounded-xl">
-                            <ShoppingBag className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                            Orders
-                        </span>
+                        <div className="p-2.5 bg-emerald-50 rounded-xl"><ShoppingBag className="w-4 h-4 text-emerald-600" /></div>
+                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Orders</span>
                     </div>
                     <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total Orders</p>
                     <p className="text-2xl font-bold text-gray-900 tracking-tight">{stats.totalOrders}</p>
                     <p className="text-xs text-gray-400 mt-2">{stats.completedOrders} completed</p>
                 </div>
                 
-                {/* Pending Orders Card */}
                 <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-orange-200 hover:shadow-md transition-all">
                     <div className="flex items-center justify-between mb-3">
-                        <div className="p-2.5 bg-orange-50 rounded-xl">
-                            <Clock className="w-4 h-4 text-orange-500" />
-                        </div>
-                        <span className="text-xs font-semibold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">
-                            Kitchen
-                        </span>
+                        <div className="p-2.5 bg-orange-50 rounded-xl"><Clock className="w-4 h-4 text-orange-500" /></div>
+                        <span className="text-xs font-semibold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">Kitchen</span>
                     </div>
                     <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Pending Orders</p>
                     <p className="text-2xl font-bold text-gray-900 tracking-tight">{stats.pendingOrders}</p>
                     <p className="text-xs text-gray-400 mt-2">Awaiting preparation</p>
                 </div>
                 
-                {/* Stock Card */}
                 <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-rose-200 hover:shadow-md transition-all">
                     <div className="flex items-center justify-between mb-3">
-                        <div className="p-2.5 bg-rose-50 rounded-xl">
-                            <Package className="w-4 h-4 text-rose-500" />
-                        </div>
-                        {stats.lowStockItems > 0 && (
-                            <span className="text-xs font-semibold text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full">
-                                {stats.lowStockItems} low
-                            </span>
-                        )}
+                        <div className="p-2.5 bg-rose-50 rounded-xl"><Package className="w-4 h-4 text-rose-500" /></div>
+                        {stats.lowStockItems > 0 && <span className="text-xs font-semibold text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full">{stats.lowStockItems} low</span>}
                     </div>
                     <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Low Stock Items</p>
                     <p className="text-2xl font-bold text-gray-900 tracking-tight">{stats.lowStockItems}</p>
@@ -1142,7 +1070,6 @@ export default function Dashboard({
                             </div>
                             
                             <div className="flex items-center gap-3">
-                                {/* Filter Dropdown - NO REFRESH */}
                                 <div className="flex bg-gray-100 rounded-xl overflow-hidden p-0.5 gap-0.5">
                                     {['all', 'completed', 'pending'].map((filter) => (
                                         <button
@@ -1159,11 +1086,7 @@ export default function Dashboard({
                                     ))}
                                 </div>
                                 
-                                {/* View All Button - Opens Modal */}
-                                <button
-                                    onClick={handleViewAll}
-                                    className="px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors text-xs font-medium flex items-center gap-1.5"
-                                >
+                                <button onClick={handleViewAll} className="px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors text-xs font-medium flex items-center gap-1.5">
                                     <Maximize2 className="w-4 h-4" />
                                     View All
                                 </button>
@@ -1204,62 +1127,41 @@ export default function Dashboard({
                                                         <div className={`p-1.5 rounded-lg ${getOrderTypeInfo(sale.order_type).bg}`}>
                                                             <OrderTypeIcon className={`w-3 h-3 ${getOrderTypeInfo(sale.order_type).text}`} />
                                                         </div>
-                                                        <span className="font-mono font-medium text-gray-900">
-                                                            {displayOrderLabel(sale)}
-                                                        </span>
-                                                        {sale.is_hotel && (
-                                                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">
-                                                                Hotel
-                                                            </span>
-                                                        )}
-                                                        {sale.is_personal && (
-                                                            <span className="px-2 py-0.5 bg-pink-100 text-pink-700 text-xs font-medium rounded-full">
-                                                                Personal
-                                                            </span>
-                                                        )}
+                                                        <span className="font-mono font-medium text-gray-900">{displayOrderLabel(sale)}</span>
+                                                        {sale.is_hotel && <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">Hotel</span>}
+                                                        {sale.is_personal && <span className="px-2 py-0.5 bg-pink-100 text-pink-700 text-xs font-medium rounded-full">Personal</span>}
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <div className="space-y-2">
-                                                        {/* Customer */}
+                                                        <div className="flex items-center gap-2"><User className="w-3 h-3 text-gray-400" /><span className="text-sm text-gray-900">{sale.customer_name}</span></div>
                                                         <div className="flex items-center gap-2">
-                                                            <User className="w-3 h-3 text-gray-400" />
-                                                            <span className="text-sm text-gray-900">{sale.customer_name}</span>
+                                                            <div className={`p-1 rounded ${cashierConfig.bgColor}`}><CashierIcon className={`w-3 h-3 ${cashierConfig.textColor}`} /></div>
+                                                            <span className={`text-xs font-medium ${cashierConfig.textColor}`}>{sale.cashier_name || 'No cashier'}</span>
                                                         </div>
-                                                        {/* Cashier */}
-                                                        <div className="flex items-center gap-2">
-                                                            <div className={`p-1 rounded ${cashierConfig.bgColor}`}>
-                                                                <CashierIcon className={`w-3 h-3 ${cashierConfig.textColor}`} />
-                                                            </div>
-                                                            <span className={`text-xs font-medium ${cashierConfig.textColor}`}>
-                                                                {sale.cashier_name || 'No cashier'}
-                                                            </span>
-                                                        </div>
-                                                        {sale.room_number && (
-                                                            <div className="text-xs text-gray-500">Room #{sale.room_number}</div>
-                                                        )}
+                                                        {sale.room_number && <div className="text-xs text-gray-500">Room #{sale.room_number}</div>}
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 text-sm text-gray-600">
-                                                    {sale.items_count} items
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <span className="font-bold text-gray-900">
-                                                        {formatPeso(sale.total_amount)}
-                                                    </span>
-                                                </td>
+                                                <td className="px-6 py-4 text-sm text-gray-600">{sale.items_count} items</td>
+                                                <td className="px-6 py-4"><span className="font-bold text-gray-900">{formatPeso(sale.total_amount)}</span></td>
                                                 <td className="px-6 py-4">
                                                     <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${status.bg} ${status.text}`}>
                                                         <StatusIcon className="w-3 h-3" />
                                                         {status.label}
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 text-sm text-gray-500">
-                                                    {formatPHTime(sale.created_at)}
-                                                </td>
+                                                <td className="px-6 py-4 text-sm text-gray-500">{formatPHTime(sale.created_at)}</td>
                                                 <td className="px-6 py-4">
-                                                    <button className="p-1 hover:bg-gray-100 rounded-lg">
-                                                        <MoreHorizontal className="w-4 h-4 text-gray-400" />
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedTransaction(sale);
+                                                            setShowReceipt(true);
+                                                        }}
+                                                        className="p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        title="Print Receipt"
+                                                    >
+                                                        <Printer className="w-4 h-4 text-gray-500 hover:text-blue-600" />
                                                     </button>
                                                 </td>
                                             </tr>
@@ -1280,7 +1182,6 @@ export default function Dashboard({
                         </table>
                     </div>
                     
-                    {/* Pagination */}
                     <div className="px-5 py-3.5 border-t border-gray-100">
                         <Pagination />
                     </div>
@@ -1323,14 +1224,10 @@ export default function Dashboard({
                                                 }}
                                             >
                                                 <div className="flex items-center gap-4">
-                                                    <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center font-bold text-gray-500 text-xs border border-gray-200 shrink-0">
-                                                        #{index + 1}
-                                                    </div>
+                                                    <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center font-bold text-gray-500 text-xs border border-gray-200 shrink-0">#{index + 1}</div>
                                                     <div>
                                                         <p className="font-semibold text-gray-900">{item.item_name}</p>
-                                                        <p className="text-sm text-gray-500">
-                                                            {item.quantity} sold
-                                                        </p>
+                                                        <p className="text-sm text-gray-500">{item.quantity} sold</p>
                                                     </div>
                                                 </div>
                                                 <div className="text-right">
@@ -1356,7 +1253,6 @@ export default function Dashboard({
                         <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Quick Stats</h3>
                         
                         <div className="space-y-4">
-                            {/* Payment Methods */}
                             <div>
                                 <p className="text-sm text-gray-500 mb-2">Payment Methods</p>
                                 <div className="space-y-2">
@@ -1408,10 +1304,8 @@ export default function Dashboard({
                 </div>
             </div>
             
-            {/* Weekly Sales Chart */}
             <WeeklySalesChart />
             
-            {/* Loading Overlay */}
             {isLoadingTransaction && (
                 <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
                     <div className="bg-white p-6 rounded-xl shadow-2xl">

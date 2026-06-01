@@ -17,6 +17,7 @@ use Inertia\Inertia;
 class KitchenController extends Controller
 {
     private const LOW_STOCK_SERVING_THRESHOLD = 3;
+    
     public function index(Request $request)
     {
         $query = KitchenItem::with('category')
@@ -68,6 +69,60 @@ class KitchenController extends Controller
     }
 
     /**
+     * Get orders for kitchen display with date filtering
+     */
+    public function orders(Request $request)
+    {
+        $dateRange = $request->get('date_range', 'today');
+        $startDate = $request->get('start_date');
+        $endDate = $request->get('end_date');
+        
+        $query = \App\Models\Order::with(['items', 'items.kitchenItem', 'paymentMethod'])
+            ->whereHas('items', function($q) {
+                $q->whereNotNull('kitchen_item_id');
+            })
+            ->orderBy('created_at', 'desc');
+        
+        if ($startDate && $endDate) {
+            $query->whereBetween('created_at', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+        }
+        
+        $orders = $query->get();
+        
+        // Format orders for kitchen display
+        $formattedOrders = $orders->map(function($order) {
+            return [
+                'id' => $order->id,
+                'order_number' => $order->order_number,
+                'txn_number' => $order->txn_number,
+                'order_type' => $order->order_type,
+                'customer_name' => $order->customer_name,
+                'room_number' => $order->room_number,
+                'payment_method_name' => $order->paymentMethod->name ?? null,
+                'created_at' => $order->created_at,
+                'notes' => $order->notes,
+                'items' => $order->items->map(function($item) {
+                    return [
+                        'id' => $item->id,
+                        'name' => $item->name,
+                        'quantity' => $item->quantity,
+                        'price' => $item->price,
+                        'notes' => $item->notes,
+                        'kitchen_status' => $item->kitchen_status ?? 'pending',
+                        'kitchen_type' => $item->kitchenItem?->inventory_pool_code ?? 'kitchen',
+                    ];
+                }),
+            ];
+        });
+        
+        return response()->json([
+            'success' => true,
+            'orders' => $formattedOrders,
+            'date_range' => $dateRange,
+        ]);
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
@@ -112,6 +167,7 @@ class KitchenController extends Controller
             $validated['is_featured'] = isset($validated['is_featured']) ? (bool)$validated['is_featured'] : false;
             $validated['pricing_type'] = $validated['pricing_type'] ?? 'single';
             $validated['has_recipe'] = isset($validated['has_recipe']) ? (bool)$validated['has_recipe'] : false;
+            
             // Set price based on pricing type
             if (($validated['pricing_type'] ?? 'single') === 'dual') {
                 $validated['price'] = $validated['price_solo'] ?? 0;
@@ -704,6 +760,7 @@ class KitchenController extends Controller
             default => $normalized,
         };
     }
+    
     /**
      * Save size+temperature variant prices for a KitchenItem.
      * Input JSON: [{ size_name, size_id, temperature, price }, ...]
@@ -767,5 +824,4 @@ class KitchenController extends Controller
 
         return [array_merge($base, ['quantity_required'=>$qty, 'notes'=>$notes])];
     }
-
 }

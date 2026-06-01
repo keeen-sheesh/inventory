@@ -87,6 +87,11 @@ class PosController extends Controller
                 $order->room_number = $order->room_number ?? null;
                 $order->txn_number = $order->txn_number;
                 $order->order_number = $order->order_number;
+                $order->order_type = $order->order_type;
+                $order->is_unpaid = $order->order_type === 'dine_in'
+                    && is_null($order->payment_method_id)
+                    && is_null($order->paid_at)
+                    && ! in_array($order->status, ['completed', 'cancelled']);
 
                 return $order;
             });
@@ -206,6 +211,11 @@ class PosController extends Controller
                 'items' => $items, // Add items with kitchen_status
                 'formatted_total' => '₱'.number_format($order->total_amount, 2),
                 'formatted_time' => $order->created_at->format('h:i A'),
+                'order_type' => $order->order_type,
+                'is_unpaid' => $order->order_type === 'dine_in'
+                    && is_null($order->payment_method_id)
+                    && is_null($order->paid_at)
+                    && ! in_array($order->status, ['completed', 'cancelled']),
             ];
         }
 
@@ -896,6 +906,11 @@ class PosController extends Controller
                 'items_list' => $itemsList,
                 'formatted_total' => '₱'.number_format($order->total_amount, 2),
                 'formatted_time' => $order->created_at->format('h:i A'),
+                'order_type' => $order->order_type,
+                'is_unpaid' => $order->order_type === 'dine_in'
+                    && is_null($order->payment_method_id)
+                    && is_null($order->paid_at)
+                    && ! in_array($order->status, ['completed', 'cancelled']),
             ];
         }
 
@@ -949,6 +964,10 @@ class PosController extends Controller
     {
         try {
             $isPersonal = (bool) $request->input('is_personal', false);
+            // Detect pay-later dine-in orders BEFORE validation so we can relax the
+            // payment_method_id rule accordingly.
+            $isPayLater = $request->input('order_type') === 'dine_in'
+                && (bool) $request->input('pay_later', false);
             $cashierShift = null;
 
             // Cashier users must be checked in to an open shift before creating sales.
@@ -1009,7 +1028,8 @@ class PosController extends Controller
                 'cash_received' => 'nullable|numeric|min:0',
                 'change_due' => 'nullable|numeric|min:0',
                 'employee_discount_amount' => 'nullable|numeric|min:0',
-                'payment_method_id' => $isPersonal ? 'nullable|integer' : $paymentMethodRule,
+                'payment_method_id' => ($isPersonal || $isPayLater) ? 'nullable|integer' : $paymentMethodRule,
+                'pay_later' => 'nullable|boolean',
             ]);
 
             Log::info('POS order creation started', [
@@ -1144,8 +1164,8 @@ class PosController extends Controller
                 'notes' => $validated['notes'] ?? null,
                 'discount_type' => $validated['discount_type'] ?? 'none',
                 'discount_value' => $validated['discount_value'] ?? 0,
-                'payment_method_id' => $isPersonal ? null : $validated['payment_method_id'],
-                'paid_at' => ! $hasKitchenItems ? now() : null,
+                'payment_method_id' => ($isPersonal || $isPayLater) ? null : $validated['payment_method_id'],
+                'paid_at' => $isPayLater ? null : (!$hasKitchenItems ? now() : null),
                 'cash_received' => $validated['cash_received'] ?? null,
                 'change_due' => $validated['change_due'] ?? null,
                 'vatable_total' => $vatBreakdown['vatable_total'],
@@ -1346,11 +1366,15 @@ class PosController extends Controller
                 'txn_number' => $sale->txn_number,
                 'invoice_number' => $sale->invoice_number,
                 'date' => $sale->created_at->format('Y-m-d H:i:s'),
+                'created_at' => $sale->created_at->format('Y-m-d H:i:s'),
                 'cashier' => $sale->user?->name ?? 'Unknown',
                 'subtotal' => (float) $sale->subtotal,
                 'discount' => (float) $sale->discount_amount,
+                'discount_amount' => (float) $sale->discount_amount,
                 'service_charge' => (float) $sale->service_charge_amount,
+                'service_charge_amount' => (float) $sale->service_charge_amount,
                 'total' => (float) $totalAmount,
+                'total_amount' => (float) $totalAmount,
                 'payment_method' => $sale->paymentMethod?->name ?? 'N/A',
                 'cash_received' => $sale->cash_received ? (float) $sale->cash_received : null,
                 'change_due' => $sale->change_due ? (float) $sale->change_due : null,
@@ -1368,8 +1392,9 @@ class PosController extends Controller
                     'order_number' => $sale->order_number,
                     'txn_number' => $sale->txn_number,
                     'has_kitchen_items' => $hasKitchenItems,
+                    'pay_later' => $isPayLater,
                 ],
-                'receipt' => $receiptData,
+                'receipt' => $isPayLater ? null : $receiptData,
             ]);
 
         } catch (\Exception $e) {
@@ -1385,49 +1410,53 @@ class PosController extends Controller
     }
 
     public function markAsPaid(Request $request, Sale $sale)
-    {
-        try {
-            DB::beginTransaction();
+{
+    try {
+        $validated = $request->validate([
+            'payment_method_id' => 'required|integer',
+            'cash_received'     => 'nullable|numeric|min:0',
+            'change_due'        => 'nullable|numeric|min:0',
+        ]);
 
-            $updateData = [
-                'status' => 'completed',
-                'payment_method_id' => $request->payment_method_id ?? 1,
-            ];
+        DB::beginTransaction();
 
-            // Only update paid_at if column exists
-            if (Schema::hasColumn('sales', 'paid_at')) {
-                $updateData['paid_at'] = now();
-            }
+        $updateData = [
+            'payment_method_id' => $validated['payment_method_id'],
+            'cash_received'     => $validated['cash_received'] ?? null,
+            'change_due'        => $validated['change_due'] ?? null,
+        ];
 
-            $sale->update($updateData);
-
-            // Calculate and save COGS data if not already calculated
-            if (! $sale->total_cost) {
-                try {
-                    $sale->saveCostData();
-                    Log::info('COGS calculated for order #'.$sale->id.' (markAsPaid)', [
-                        'total_cost' => $sale->total_cost,
-                        'gross_profit' => $sale->gross_profit,
-                        'profit_margin' => $sale->profit_margin,
-                    ]);
-                } catch (\Exception $e) {
-                    Log::error('COGS calculation failed for order #'.$sale->id.': '.$e->getMessage());
-                }
-            }
-
-            DB::commit();
-
-            // Update menu last updated timestamp to trigger POS refresh
-            cache()->put('menu_last_updated', time(), 3600);
-
-            return redirect()->route('admin.pos.index')->with('success', '✅ Order #'.$sale->id.' marked as paid successfully!');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return redirect()->route('admin.pos.index')->with('error', '❌ Failed to mark as paid: '.$e->getMessage());
+        // Only add paid_at if the column exists
+        if (Schema::hasColumn('sales', 'paid_at')) {
+            $updateData['paid_at'] = now();
         }
+
+        $sale->update($updateData);
+
+        DB::commit();
+
+        // Your existing response code...
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment recorded for Order #'.$sale->id,
+            // ... rest of response
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        \Log::error('markAsPaid failed', [
+            'order_id' => $sale->id ?? null,
+            'error' => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
 
     /**
      * Cancel/void an order and restore previously deducted inventory.

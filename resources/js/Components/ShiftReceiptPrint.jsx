@@ -37,7 +37,11 @@ export default function ShiftReceiptPrint({ receipt, onClose }) {
 
     const handlePrint = () => {
         const content = printRef.current?.innerHTML;
-        if (!content) return;
+        if (!content) {
+            // If no content, just close and logout
+            onClose?.();
+            return;
+        }
 
         const printWindow = window.open('', '_blank', 'width=420,height=720');
         printWindow.document.write(`
@@ -68,8 +72,18 @@ export default function ShiftReceiptPrint({ receipt, onClose }) {
         printWindow.document.close();
         printWindow.focus();
         printWindow.print();
-        printWindow.close();
-        onClose?.();
+        
+        // Close print window and trigger logout after print is done
+        printWindow.onafterprint = () => {
+            printWindow.close();
+            onClose?.();
+        };
+        
+        // Fallback: if onafterprint doesn't fire, close and logout after 3 seconds
+        setTimeout(() => {
+            printWindow.close();
+            onClose?.();
+        }, 3000);
     };
 
     const ReceiptBody = ({ forPrint = false }) => {

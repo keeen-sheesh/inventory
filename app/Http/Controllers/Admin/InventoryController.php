@@ -1,5 +1,4 @@
 <?php
-// app/Http/Controllers/Admin/InventoryController.php
 
 namespace App\Http\Controllers\Admin;
 
@@ -128,74 +127,136 @@ class InventoryController extends Controller
     
     public function updateIngredient(Request $request, Ingredient $ingredient)
     {
+        // Log the incoming request for debugging
+        Log::info('=== UPDATE INGREDIENT REQUEST ===');
+        Log::info('Request payload:', $request->all());
+        Log::info('Ingredient ID: ' . $ingredient->id);
+        Log::info('Current ingredient data:', $ingredient->toArray());
+        
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:ingredients,name,' . $ingredient->id,
             'unit' => 'required|string|max:50',
-            'category' => 'nullable|string|max:100',
+            'category_id' => 'nullable|integer|exists:categories,id',
             'min_stock' => 'nullable|integer|min:0',
             'current_stock' => 'nullable|integer|min:0',
             'pool' => 'required|string|in:resto,kitchen',
             'cost_per_unit' => 'nullable|numeric|min:0',
         ]);
         
+        Log::info('Validated data:', $validated);
+        
         try {
             DB::beginTransaction();
             
-            // Debug log
-            Log::info('Updating ingredient ID: ' . $ingredient->id);
-            Log::info('Category value being saved: ' . ($validated['category'] ?? 'null'));
+            // DIRECT UPDATE using individual property assignments
+            $ingredient->name = $validated['name'];
+            $ingredient->unit = $validated['unit'];
+            $ingredient->min_stock = $validated['min_stock'] ?? 0;
             
-            $ingredient->update([
-                'name' => $validated['name'],
-                'unit' => $validated['unit'],
-                'category' => $validated['category'] ?? null,
-                'min_stock' => $validated['min_stock'] ?? 0,
-            ]);
+            // Set category_id (the foreign key, not the relationship)
+            $ingredient->category_id = $validated['category_id'] ?? null;
             
+            Log::info('Saving ingredient with category_id: ' . ($ingredient->category_id ?? 'null'));
+            
+            // Save the model
+            $ingredient->save();
+            
+            Log::info('Ingredient after save:', $ingredient->toArray());
+            
+            // Handle pool and stock
             $pool = InventoryPool::where('code', $validated['pool'])->first();
-            if ($pool) {
-                $stock = IngredientStock::where('ingredient_id', $ingredient->id)
-                    ->where('inventory_pool_id', $pool->id)
-                    ->first();
-                    
-                if ($stock) {
-                    $oldQuantity = $stock->quantity;
-                    $newQuantity = $validated['current_stock'] ?? 0;
-                    $stock->quantity = $newQuantity;
-                    $stock->cost_per_unit = $validated['cost_per_unit'] ?? $stock->cost_per_unit;
-                    $stock->save();
-                    
-                    if ($oldQuantity != $newQuantity) {
-                        InventoryTransaction::create([
-                            'ingredient_id' => $ingredient->id,
-                            'inventory_pool_id' => $pool->id,
-                            'quantity_delta' => $newQuantity - $oldQuantity,
-                            'reason' => 'manual_adjustment',
-                            'user_id' => auth()->id(),
-                            'notes' => "Manual stock update from {$oldQuantity} to {$newQuantity}",
-                        ]);
-                    }
-                } else {
-                    IngredientStock::create([
+            if (!$pool) {
+                throw new \Exception('Invalid inventory pool: ' . $validated['pool']);
+            }
+            
+            Log::info('Using pool:', ['id' => $pool->id, 'code' => $pool->code]);
+            
+            // Get the stock for the selected pool
+            $stock = IngredientStock::where('ingredient_id', $ingredient->id)
+                ->where('inventory_pool_id', $pool->id)
+                ->first();
+            
+            $newQuantity = $validated['current_stock'] ?? 0;
+            Log::info('Stock management - New quantity: ' . $newQuantity);
+            
+            if ($stock) {
+                Log::info('Existing stock found, updating quantity from ' . $stock->quantity . ' to ' . $newQuantity);
+                $oldQuantity = $stock->quantity;
+                $stock->quantity = $newQuantity;
+                
+                if (isset($validated['cost_per_unit']) && $validated['cost_per_unit'] > 0) {
+                    $stock->cost_per_unit = $validated['cost_per_unit'];
+                }
+                
+                $stock->save();
+                
+                if ($oldQuantity != $newQuantity) {
+                    InventoryTransaction::create([
                         'ingredient_id' => $ingredient->id,
                         'inventory_pool_id' => $pool->id,
-                        'quantity' => $validated['current_stock'] ?? 0,
-                        'cost_per_unit' => $validated['cost_per_unit'] ?? 0,
+                        'quantity_delta' => $newQuantity - $oldQuantity,
+                        'reason' => 'manual_adjustment',
+                        'user_id' => auth()->id(),
+                        'notes' => "Manual stock update from {$oldQuantity} to {$newQuantity}",
+                    ]);
+                }
+            } else {
+                Log::info('No existing stock found, creating new stock record');
+                IngredientStock::create([
+                    'ingredient_id' => $ingredient->id,
+                    'inventory_pool_id' => $pool->id,
+                    'quantity' => $newQuantity,
+                    'cost_per_unit' => $validated['cost_per_unit'] ?? 0,
+                ]);
+                
+                // Check if there's stock in the other pool
+                $otherPoolCode = $validated['pool'] === 'resto' ? 'kitchen' : 'resto';
+                $otherPool = InventoryPool::where('code', $otherPoolCode)->first();
+                
+                if ($otherPool) {
+                    $otherStock = IngredientStock::where('ingredient_id', $ingredient->id)
+                        ->where('inventory_pool_id', $otherPool->id)
+                        ->first();
+                    
+                    if ($otherStock) {
+                        Log::info('Removing stock from other pool: ' . $otherPoolCode);
+                        $otherStock->delete();
+                    }
+                }
+                
+                if ($newQuantity > 0) {
+                    InventoryTransaction::create([
+                        'ingredient_id' => $ingredient->id,
+                        'inventory_pool_id' => $pool->id,
+                        'quantity_delta' => $newQuantity,
+                        'reason' => 'manual_adjustment',
+                        'user_id' => auth()->id(),
+                        'notes' => "Stock created in {$validated['pool']} pool with quantity {$newQuantity}",
                     ]);
                 }
             }
             
             DB::commit();
             
-            // Return updated ingredients list
+            // Get fresh ingredients list
+            $ingredients = $this->getAllIngredientsWithStock();
+            
+            Log::info('Update successful, returning response');
+            
+            $updatedIngredient = $ingredient->fresh();
+            
             return response()->json([
                 'success' => true,
                 'message' => 'Ingredient updated successfully!',
-                'ingredients' => $this->getAllIngredientsWithStock(),
+                'ingredients' => $ingredients,
+                'updated_ingredient' => array_merge($updatedIngredient->toArray(), [
+                    'category_name' => $updatedIngredient->category?->name,
+                ]),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to update ingredient: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
             
             return response()->json([
                 'success' => false,
@@ -330,8 +391,6 @@ class InventoryController extends Controller
         }
     }
     
-    // ==================== ADD STOCK TO EXISTING INGREDIENT ====================
-
     public function addStock(Request $request)
     {
         $validated = $request->validate([
@@ -569,7 +628,7 @@ class InventoryController extends Controller
         $restoPool = InventoryPool::where('code', 'resto')->first();
         $kitchenPool = InventoryPool::where('code', 'kitchen')->first();
         
-        $ingredients = Ingredient::orderBy('name')->get();
+        $ingredients = Ingredient::with('category')->orderBy('name')->get();
         $result = [];
         
         foreach ($ingredients as $ingredient) {
@@ -603,12 +662,17 @@ class InventoryController extends Controller
             }
             
             $totalValue = $currentStock * $costPerUnit;
+            $categoryName = null;
+            if ($ingredient->category_id) {
+                $categoryName = is_object($ingredient->category) ? $ingredient->category->name : $ingredient->category;
+            }
             
             $result[] = [
                 'id' => $ingredient->id,
                 'name' => $ingredient->name,
                 'unit' => $ingredient->unit,
-                'category' => $ingredient->category,
+                'category_id' => $ingredient->category_id,
+                'category' => $categoryName,
                 'pool' => $pool,
                 'current_stock' => $currentStock,
                 'min_stock' => (int) ($ingredient->min_stock ?? 0),
@@ -701,14 +765,12 @@ class InventoryController extends Controller
         if ($current <= $min) return 'low';
         return 'good';
     }
-
-    // ==================== STOCK VALUE ====================
-
+    
     public function getStockValue(Request $request)
     {
         $ingredients = $this->getAllIngredientsWithStock();
         $total = collect($ingredients)->sum('total_value');
-
+        
         $byCategory = collect($ingredients)
             ->groupBy(fn($i) => $i['category'] ?: 'Uncategorized')
             ->map(fn($g, $cat) => [
@@ -716,7 +778,7 @@ class InventoryController extends Controller
                 'count'    => $g->count(),
                 'value'    => round($g->sum('total_value'), 2),
             ])->values();
-
+        
         $byPool = collect($ingredients)
             ->groupBy(fn($i) => $i['pool'] ?: 'unassigned')
             ->map(fn($g, $pool) => [
@@ -724,7 +786,7 @@ class InventoryController extends Controller
                 'count' => $g->count(),
                 'value' => round($g->sum('total_value'), 2),
             ])->values();
-
+        
         return response()->json([
             'success'    => true,
             'stockValue' => [
@@ -745,9 +807,7 @@ class InventoryController extends Controller
             ],
         ]);
     }
-
-    // ==================== STOCK RETURN ====================
-
+    
     public function storeStockReturn(Request $request)
     {
         $validated = $request->validate([
@@ -757,20 +817,20 @@ class InventoryController extends Controller
             'reason'        => 'nullable|string|max:500',
             'notes'         => 'nullable|string|max:1000',
         ]);
-
+        
         try {
             DB::beginTransaction();
             $pool  = InventoryPool::where('code', $validated['pool'])->firstOrFail();
             $stock = IngredientStock::where('ingredient_id', $validated['ingredient_id'])
                 ->where('inventory_pool_id', $pool->id)->firstOrFail();
-
+            
             if ($stock->quantity < $validated['quantity']) {
                 return response()->json(['success' => false, 'message' => 'Return quantity exceeds available stock.'], 422);
             }
-
+            
             $stock->quantity -= $validated['quantity'];
             $stock->save();
-
+            
             InventoryTransaction::create([
                 'ingredient_id'     => $validated['ingredient_id'],
                 'inventory_pool_id' => $pool->id,
@@ -779,7 +839,7 @@ class InventoryController extends Controller
                 'user_id'           => auth()->id(),
                 'notes'             => $validated['notes'] ?? $validated['reason'] ?? 'Stock return',
             ]);
-
+            
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Stock return recorded.', 'ingredients' => $this->getAllIngredientsWithStock()]);
         } catch (\Exception $e) {
@@ -787,7 +847,7 @@ class InventoryController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
-
+    
     public function getStockReturns(Request $request)
     {
         $records = InventoryTransaction::with(['ingredient', 'user', 'pool'])
@@ -805,12 +865,10 @@ class InventoryController extends Controller
                 'user'       => $t->user?->name ?? 'System',
                 'created_at' => $t->created_at->toISOString(),
             ]);
-
+        
         return response()->json(['success' => true, 'records' => $records]);
     }
-
-    // ==================== STOCK TAKE ====================
-
+    
     public function submitStockTake(Request $request)
     {
         $validated = $request->validate([
@@ -821,22 +879,22 @@ class InventoryController extends Controller
             'items.*.pool'             => 'required|string|in:resto,kitchen',
             'items.*.counted_quantity' => 'required|integer|min:0',
         ]);
-
+        
         try {
             DB::beginTransaction();
             $batchLabel  = $validated['batch_label'] ?? 'Stock Take ' . now()->format('Y-m-d H:i');
             $adjustments = [];
-
+            
             foreach ($validated['items'] as $item) {
                 $pool  = InventoryPool::where('code', $item['pool'])->first();
                 if (!$pool) continue;
-
+                
                 $stock     = IngredientStock::where('ingredient_id', $item['ingredient_id'])
                     ->where('inventory_pool_id', $pool->id)->first();
                 $systemQty  = $stock ? (int) $stock->quantity : 0;
                 $countedQty = (int) $item['counted_quantity'];
                 $delta      = $countedQty - $systemQty;
-
+                
                 if ($stock) {
                     $stock->quantity = $countedQty;
                     $stock->save();
@@ -848,7 +906,7 @@ class InventoryController extends Controller
                         'cost_per_unit'     => 0,
                     ]);
                 }
-
+                
                 InventoryTransaction::create([
                     'ingredient_id'     => $item['ingredient_id'],
                     'inventory_pool_id' => $pool->id,
@@ -857,10 +915,10 @@ class InventoryController extends Controller
                     'user_id'           => auth()->id(),
                     'notes'             => "{$batchLabel}: System={$systemQty}, Counted={$countedQty}, Variance={$delta}. " . ($validated['notes'] ?? ''),
                 ]);
-
+                
                 $adjustments[] = ['ingredient_id' => $item['ingredient_id'], 'system_qty' => $systemQty, 'counted_qty' => $countedQty, 'variance' => $delta];
             }
-
+            
             DB::commit();
             return response()->json(['success' => true, 'message' => "Stock take completed: {$batchLabel}", 'adjustments' => $adjustments, 'ingredients' => $this->getAllIngredientsWithStock()]);
         } catch (\Exception $e) {
@@ -868,7 +926,7 @@ class InventoryController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
-
+    
     public function getStockTakes(Request $request)
     {
         $records = InventoryTransaction::with(['ingredient', 'user', 'pool'])
@@ -886,12 +944,10 @@ class InventoryController extends Controller
                 'user'           => $t->user?->name ?? 'System',
                 'created_at'     => $t->created_at->toISOString(),
             ]);
-
+        
         return response()->json(['success' => true, 'records' => $records]);
     }
-
-    // ==================== STOCK LOSS ====================
-
+    
     public function storeStockLoss(Request $request)
     {
         $validated = $request->validate([
@@ -901,17 +957,17 @@ class InventoryController extends Controller
             'loss_type'     => 'required|string|in:spoilage,breakage,theft,other',
             'notes'         => 'nullable|string|max:1000',
         ]);
-
+        
         try {
             DB::beginTransaction();
             $pool  = InventoryPool::where('code', $validated['pool'])->firstOrFail();
             $stock = IngredientStock::where('ingredient_id', $validated['ingredient_id'])
                 ->where('inventory_pool_id', $pool->id)->firstOrFail();
-
+            
             $deduct = min($validated['quantity'], (int) $stock->quantity);
             $stock->quantity -= $deduct;
             $stock->save();
-
+            
             InventoryTransaction::create([
                 'ingredient_id'     => $validated['ingredient_id'],
                 'inventory_pool_id' => $pool->id,
@@ -920,7 +976,7 @@ class InventoryController extends Controller
                 'user_id'           => auth()->id(),
                 'notes'             => "[{$validated['loss_type']}] " . ($validated['notes'] ?? 'Stock loss recorded'),
             ]);
-
+            
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Stock loss recorded.', 'ingredients' => $this->getAllIngredientsWithStock()]);
         } catch (\Exception $e) {
@@ -928,7 +984,7 @@ class InventoryController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
-
+    
     public function getStockLosses(Request $request)
     {
         $records = InventoryTransaction::with(['ingredient', 'user', 'pool'])
@@ -946,12 +1002,10 @@ class InventoryController extends Controller
                 'user'       => $t->user?->name ?? 'System',
                 'created_at' => $t->created_at->toISOString(),
             ]);
-
+        
         return response()->json(['success' => true, 'records' => $records]);
     }
-
-    // ==================== STOCK TRANSFER ====================
-
+    
     public function transferStock(Request $request)
     {
         $validated = $request->validate([
@@ -961,38 +1015,38 @@ class InventoryController extends Controller
             'quantity'      => 'required|integer|min:1',
             'notes'         => 'nullable|string|max:1000',
         ]);
-
+        
         if ($validated['from_pool'] === $validated['to_pool']) {
             return response()->json(['success' => false, 'message' => 'Source and destination pools must differ.'], 422);
         }
-
+        
         try {
             DB::beginTransaction();
             $fromPool  = InventoryPool::where('code', $validated['from_pool'])->firstOrFail();
             $toPool    = InventoryPool::where('code', $validated['to_pool'])->firstOrFail();
             $fromStock = IngredientStock::where('ingredient_id', $validated['ingredient_id'])
                 ->where('inventory_pool_id', $fromPool->id)->firstOrFail();
-
+            
             if ($fromStock->quantity < $validated['quantity']) {
                 return response()->json(['success' => false, 'message' => 'Transfer quantity exceeds available stock.'], 422);
             }
-
+            
             $fromStock->quantity -= $validated['quantity'];
             $fromStock->save();
-
+            
             $toStock = IngredientStock::firstOrCreate(
                 ['ingredient_id' => $validated['ingredient_id'], 'inventory_pool_id' => $toPool->id],
                 ['quantity' => 0, 'cost_per_unit' => $fromStock->cost_per_unit]
             );
             $toStock->quantity += $validated['quantity'];
             $toStock->save();
-
+            
             $ingredient = Ingredient::find($validated['ingredient_id']);
             $note = "Transfer {$validated['quantity']} {$ingredient->unit} from {$validated['from_pool']} → {$validated['to_pool']}. " . ($validated['notes'] ?? '');
-
+            
             InventoryTransaction::create(['ingredient_id' => $validated['ingredient_id'], 'inventory_pool_id' => $fromPool->id, 'quantity_delta' => -$validated['quantity'], 'reason' => 'stock_transfer_out', 'user_id' => auth()->id(), 'notes' => $note]);
             InventoryTransaction::create(['ingredient_id' => $validated['ingredient_id'], 'inventory_pool_id' => $toPool->id,   'quantity_delta' =>  $validated['quantity'], 'reason' => 'stock_transfer_in',  'user_id' => auth()->id(), 'notes' => $note]);
-
+            
             DB::commit();
             return response()->json(['success' => true, 'message' => "Transferred {$validated['quantity']} {$ingredient->unit} of {$ingredient->name}.", 'ingredients' => $this->getAllIngredientsWithStock()]);
         } catch (\Exception $e) {
@@ -1000,7 +1054,7 @@ class InventoryController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
-
+    
     public function getStockTransfers(Request $request)
     {
         $records = InventoryTransaction::with(['ingredient', 'user', 'pool'])
@@ -1019,12 +1073,10 @@ class InventoryController extends Controller
                 'user'       => $t->user?->name ?? 'System',
                 'created_at' => $t->created_at->toISOString(),
             ]);
-
+        
         return response()->json(['success' => true, 'records' => $records]);
     }
-
-    // ==================== AUDIT TRAIL ====================
-
+    
     public function getAuditTrailData(Request $request)
     {
         $records = InventoryTransaction::with(['ingredient', 'user', 'pool'])
@@ -1046,12 +1098,10 @@ class InventoryController extends Controller
                 'user'           => $t->user?->name ?? 'System',
                 'created_at'     => $t->created_at->toISOString(),
             ]);
-
+        
         return response()->json(['success' => true, 'records' => $records]);
     }
-
-    // ==================== WASTAGE ====================
-
+    
     public function storeWastage(Request $request)
     {
         $validated = $request->validate([
@@ -1061,17 +1111,17 @@ class InventoryController extends Controller
             'wastage_reason' => 'nullable|string|max:500',
             'notes'          => 'nullable|string|max:1000',
         ]);
-
+        
         try {
             DB::beginTransaction();
             $pool  = InventoryPool::where('code', $validated['pool'])->firstOrFail();
             $stock = IngredientStock::where('ingredient_id', $validated['ingredient_id'])
                 ->where('inventory_pool_id', $pool->id)->firstOrFail();
-
+            
             $deduct = min((float) $validated['quantity'], (float) $stock->quantity);
             $stock->quantity = max(0, $stock->quantity - $deduct);
             $stock->save();
-
+            
             InventoryTransaction::create([
                 'ingredient_id'     => $validated['ingredient_id'],
                 'inventory_pool_id' => $pool->id,
@@ -1080,7 +1130,7 @@ class InventoryController extends Controller
                 'user_id'           => auth()->id(),
                 'notes'             => ($validated['wastage_reason'] ? "[{$validated['wastage_reason']}] " : '') . ($validated['notes'] ?? 'Wastage recorded'),
             ]);
-
+            
             DB::commit();
             return response()->json(['success' => true, 'message' => 'Wastage recorded.', 'ingredients' => $this->getAllIngredientsWithStock()]);
         } catch (\Exception $e) {
@@ -1088,7 +1138,7 @@ class InventoryController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
-
+    
     public function getWastageData(Request $request)
     {
         $records = InventoryTransaction::with(['ingredient', 'user', 'pool'])
@@ -1106,7 +1156,7 @@ class InventoryController extends Controller
                 'user'       => $t->user?->name ?? 'System',
                 'created_at' => $t->created_at->toISOString(),
             ]);
-
+        
         return response()->json(['success' => true, 'records' => $records]);
     }
 }

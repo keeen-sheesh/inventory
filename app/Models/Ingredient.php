@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Category;
+use App\Models\InventoryTransaction;
 
 class Ingredient extends Model
 {
@@ -79,6 +80,11 @@ class Ingredient extends Model
     public function stocks()
     {
         return $this->hasMany(IngredientStock::class);
+    }
+
+    public function transactions()
+    {
+        return $this->hasMany(InventoryTransaction::class);
     }
 
     public function stockForPool(string $poolCode): ?IngredientStock
