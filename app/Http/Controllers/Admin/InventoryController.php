@@ -77,6 +77,7 @@ class InventoryController extends Controller
         try {
             DB::beginTransaction();
             
+            // Create ingredient
             $ingredient = Ingredient::create([
                 'name' => $validated['name'],
                 'unit' => $validated['unit'],
@@ -86,23 +87,28 @@ class InventoryController extends Controller
                 'cost_per_unit' => $validated['cost_per_unit'] ?? 0,
             ]);
             
+            // Create IngredientStock for the specified pool only (ingredients are pool-specific)
             $pool = InventoryPool::where('code', $validated['pool'])->first();
+            $initialStock = $validated['initial_stock'] ?? 0;
+            $costPerUnit = $validated['cost_per_unit'] ?? 0;
+            
             if ($pool) {
                 IngredientStock::create([
                     'ingredient_id' => $ingredient->id,
                     'inventory_pool_id' => $pool->id,
-                    'quantity' => $validated['initial_stock'] ?? 0,
-                    'cost_per_unit' => $validated['cost_per_unit'] ?? 0,
+                    'quantity' => $initialStock,
+                    'cost_per_unit' => $costPerUnit,
                 ]);
                 
-                if (($validated['initial_stock'] ?? 0) > 0) {
+                // Create inventory transaction if there's initial stock
+                if ($initialStock > 0) {
                     InventoryTransaction::create([
                         'ingredient_id' => $ingredient->id,
                         'inventory_pool_id' => $pool->id,
-                        'quantity_delta' => $validated['initial_stock'] ?? 0,
+                        'quantity_delta' => $initialStock,
                         'reason' => 'initial_stock',
                         'user_id' => auth()->id(),
-                        'notes' => "Initial stock added: {$validated['initial_stock']} {$ingredient->unit}",
+                        'notes' => "Initial stock added: {$initialStock} {$ingredient->unit}",
                     ]);
                 }
             }

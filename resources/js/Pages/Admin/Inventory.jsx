@@ -952,6 +952,15 @@ export default function Inventory({ auth }) {
             if (response.data.success) {
                 setShowRecipeModal(false);
                 setFormErrors({});
+                // Refresh items so has_recipe / inventory_available_servings reflect the new recipe
+                try {
+                    const itemsRes = await axios.get('/admin/inventory/items');
+                    if (itemsRes.data?.success && itemsRes.data?.items) {
+                        setItems(itemsRes.data.items);
+                    }
+                } catch (refreshErr) {
+                    console.warn('Could not refresh items after recipe save:', refreshErr);
+                }
                 showSuccess('Recipe saved successfully.');
             } else {
                 showError(response.data.message || 'Failed to save recipe');

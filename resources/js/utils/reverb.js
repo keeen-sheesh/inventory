@@ -6,11 +6,21 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 export function getReverbConfig() {
+  const scheme = import.meta.env.VITE_REVERB_SCHEME || 'http';
+
+  // If not explicitly configured, infer host from current origin.
+  // This avoids hardcoding `localhost` when the app is opened via a different hostname.
+  const host = import.meta.env.VITE_REVERB_HOST || window.location.hostname;
+
+  // Keep current default port to avoid breaking existing local setups.
+  // If you use TLS, still set VITE_REVERB_PORT to the Reverb TLS port.
+  const port = import.meta.env.VITE_REVERB_PORT || '8080';
+
   return {
     key: import.meta.env.VITE_REVERB_APP_KEY || 'qm43lycb8xdegr53urc6',
-    host: import.meta.env.VITE_REVERB_HOST || 'localhost',
-    port: import.meta.env.VITE_REVERB_PORT || '8080',
-    scheme: import.meta.env.VITE_REVERB_SCHEME || 'http',
+    host,
+    port,
+    scheme,
   };
 }
 
@@ -32,12 +42,15 @@ export function initPusher() {
   const config = getReverbConfig();
 
   try {
+    const isTLS = String(config.scheme).toLowerCase() === 'https';
+
     pusherInstance = new Pusher(config.key, {
       wsHost: config.host,
       wsPort: config.port,
       wssPort: config.port,
-      forceTLS: false,
-      enabledTransports: ['ws', 'wss'],
+      forceTLS: isTLS,
+      // Avoid trying ws and wss when only one should work for your setup.
+      enabledTransports: isTLS ? ['wss'] : ['ws'],
       disableStats: true,
       cluster: 'default',
     });

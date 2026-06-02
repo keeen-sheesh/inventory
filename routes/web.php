@@ -283,6 +283,7 @@ Route::middleware(['auth', 'verified', 'role:cashier,resto,admin,manager', 'exte
     Route::get('/pos', [PosController::class, 'index'])->name('cashier.pos');
     Route::post('/pos/orders', [PosController::class, 'store'])->name('cashier.pos.orders.store');
     Route::post('/orders/{order}/pay', [PosController::class, 'markAsPaid'])->name('cashier.orders.pay');
+    Route::post('/orders/{order}/start', [PosController::class, 'markAsPreparing'])->name('cashier.orders.start');
     Route::post('/orders/{order}/ready', [PosController::class, 'markAsReady'])->name('cashier.orders.ready');
     Route::post('/orders/{order}/preparing', [PosController::class, 'markAsPreparing'])->name('cashier.orders.preparing');
     Route::post('/orders/{order}/complete', [PosController::class, 'complete'])->name('cashier.orders.complete');

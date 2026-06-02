@@ -132,7 +132,11 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
   const getLocalStatus = (order) => {
     // First check if order is cancelled
     if (order.status === 'cancelled') return 'cancelled';
-    
+
+    // Fallback: cashier completion sets sales.status=completed (and now should also set kitchen_status),
+    // but some payloads may not include kitchen_status.
+    if (order.status === 'completed') return 'completed';
+
     // Then check kitchen_status
     if (order.kitchen_status) {
       if (order.kitchen_status === 'completed') return 'completed';
@@ -140,7 +144,7 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
       if (order.kitchen_status === 'preparing') return 'preparing';
       if (order.kitchen_status === 'pending') return 'pending';
     }
-    
+
     // Then check items
     if (order.items && order.items.length > 0) {
       const itemStatuses = order.items.map(item => item.kitchen_status || 'pending');
@@ -149,17 +153,21 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
       if (itemStatuses.includes('pending')) return 'pending';
       if (itemStatuses.every(s => s === 'completed')) return 'completed';
     }
-    
+  
     return order.status || 'pending';
   };
   
   const filterOrdersByKitchenType = (orders) => {
     if (isAdmin) return orders;
-    
-    return orders.filter(order => 
-      order.items?.some(item => 
-        isFoodKitchen ? item.kitchen_type === 'kitchen' : item.kitchen_type === 'resto'
-      )
+
+    return orders.filter(order =>
+      order.items?.some(item => {
+        const kt = item?.kitchen_type;
+        if (!kt) return true;
+
+        if (isFoodKitchen) return ['kitchen', 'food'].includes(kt);
+        return ['resto', 'resto-kitchen'].includes(kt);
+      })
     );
   };
   
@@ -174,9 +182,13 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
   // Filter orders by date range
   const filterOrdersByDate = (orders, filter, from, to) => {
     const { start_date, end_date } = getDateRangeParams(filter, from, to);
-    const startDateObj = new Date(start_date);
-    const endDateObj = new Date(end_date);
-    endDateObj.setHours(23, 59, 59, 999);
+    
+    // Parse dates properly to handle local timezone
+    const [year, month, day] = start_date.split('-');
+    const startDateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 0, 0, 0, 0);
+    
+    const [endYear, endMonth, endDay] = end_date.split('-');
+    const endDateObj = new Date(parseInt(endYear), parseInt(endMonth) - 1, parseInt(endDay), 23, 59, 59, 999);
     
     return orders.filter(order => {
       const orderDate = new Date(order.created_at);
@@ -187,13 +199,13 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
   // Set orders from props
   useEffect(() => {
     if (orders && Array.isArray(orders)) {
-      // Filter by date range first
       const filteredByDate = filterOrdersByDate(orders, dateFilter, customDateRange.from, customDateRange.to);
       setKitchenOrders(filteredByDate);
       const orderIds = filteredByDate.map(o => o.id);
       seenOrderIdsRef.current = new Set(orderIds);
       notifiedOrderIdsRef.current = new Set(orderIds);
-      isFirstLoadRef.current = false;
+      // IMPORTANT: DO NOT set isFirstLoadRef to false here!
+      // Let polling determine when first load is done, so new orders are properly detected
     }
   }, [orders, dateFilter, customDateRange.from, customDateRange.to]);
   
@@ -278,32 +290,33 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
   }, []);
   
   const playAlarm = useCallback(() => {
-    if (!soundEnabledRef.current || !audioRef.current || isAlarmPlaying) return;
+    if (!soundEnabledRef.current || !audioRef.current) return;
     
     try {
-      if (alarmStopTimerRef.current) {
-        clearTimeout(alarmStopTimerRef.current);
-      }
-      
-      stopAlarm();
-      
-      setIsAlarmPlaying(true);
+      // Reset and prepare audio
       audioRef.current.currentTime = 0;
       audioRef.current.loop = true;
       
+      // Force play - this will work if user has interacted, or fail with autoplay policy error
       const playPromise = audioRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(error => console.warn('Alarm playback failed:', error));
-      }
       
-      alarmStopTimerRef.current = setTimeout(() => {
-        stopAlarm();
-      }, 2000);
-    } catch (error) {
-      console.error('Play error:', error);
-      setIsAlarmPlaying(false);
-    }
-  }, [isAlarmPlaying, stopAlarm]);
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            audioSystemReadyRef.current = true;
+            setAudioSystemReady(true);
+            setIsAlarmPlaying(true);
+            
+            // Auto-stop after 5 seconds
+            if (alarmStopTimerRef.current) clearTimeout(alarmStopTimerRef.current);
+            alarmStopTimerRef.current = setTimeout(() => {
+              stopAlarm();
+            }, 5000);
+          })
+          .catch(() => {});
+      }
+    } catch (error) {}
+  }, []);
   
   const initializeAudioSystem = useCallback(() => {
     if (audioSystemReady || !audioRef.current) return;
@@ -315,9 +328,7 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
         setAudioSystemReady(true);
         showNotification('Audio Ready', 'Sound system initialized successfully', 'success');
       })
-      .catch(error => {
-        console.log('Audio initialization needs user gesture:', error.message);
-      });
+      .catch(() => {});
   }, [audioSystemReady]);
   
   const pollForUpdates = useCallback(async () => {
@@ -331,7 +342,8 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
         customDateRange.to
       );
       
-      const url = `/admin/kitchen/check-new?since=${lastPollSinceRef.current}&date_range=${date_range}&start_date=${start_date}&end_date=${end_date}`;
+      // Use full refresh for the date range so status changes (start/ready/complete) are reflected.
+      const url = `/admin/kitchen/orders?date_range=${encodeURIComponent(date_range)}&start_date=${encodeURIComponent(start_date)}&end_date=${encodeURIComponent(end_date)}`;
       
       const response = await fetch(url, {
         method: 'GET',
@@ -357,30 +369,31 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
       const data = await response.json();
       setConnectionStatus('connected');
       
-      const nextSinceRaw = Number(data?.timestamp) || Math.floor(Date.now() / 1000);
-      lastPollSinceRef.current = nextSinceRaw > 1000000000000 
-        ? Math.floor(nextSinceRaw / 1000) 
-        : nextSinceRaw;
+      const allOrders = Array.isArray(data?.orders) ? data.orders : [];
       
-      if (data.orders && data.orders.length > 0) {
-        // Filter new orders by current date range
-        const filteredNewOrders = filterOrdersByDate(data.orders, dateFilter, customDateRange.from, customDateRange.to);
-        const currentOrderIds = filteredNewOrders.map(order => order.id);
-        const newOrderIds = currentOrderIds.filter(id => !seenOrderIdsRef.current.has(id));
-        
-        if (newOrderIds.length > 0) {
-          setKitchenOrders(filteredNewOrders);
-          seenOrderIdsRef.current = new Set(currentOrderIds);
-          newOrderIds.forEach(id => notifiedOrderIdsRef.current.add(id));
-          
-          if (!isFirstLoadRef.current && soundEnabledRef.current && audioSystemReadyRef.current) {
-            playAlarm();
-            showNotification('New Order', `${newOrderIds.length} new order(s) arrived`, 'success');
-          }
+      const filteredOrders = filterOrdersByDate(allOrders, dateFilter, customDateRange.from, customDateRange.to);
+
+      // Deduplicate by order id to avoid React duplicate-key warnings
+      const dedupedOrders = Array.from(
+        new Map(filteredOrders.map(o => [o?.id, o])).values()
+      );
+
+      const currentOrderIds = dedupedOrders.map(order => order.id);
+      const newOrderIds = currentOrderIds.filter(id => !seenOrderIdsRef.current.has(id));
+
+      setKitchenOrders(dedupedOrders);
+      seenOrderIdsRef.current = new Set(currentOrderIds);
+      newOrderIds.forEach(id => notifiedOrderIdsRef.current.add(id));
+      
+      if (!isFirstLoadRef.current && newOrderIds.length > 0) {
+        // Always try to play alarm, regardless of audioSystemReady flag
+        if (soundEnabledRef.current) {
+          playAlarm();
         }
-        
-        isFirstLoadRef.current = false;
+        showNotification('New Order', `${newOrderIds.length} new order(s) arrived`, 'success');
       }
+      
+      isFirstLoadRef.current = false;
     } catch (error) {
       console.error('Polling error:', error);
       setConnectionStatus('disconnected');
@@ -388,10 +401,10 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
       pollInFlightRef.current = false;
       if (mountedRef.current) {
         if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-        pollTimeoutRef.current = setTimeout(pollForUpdates, 5000);
+        pollTimeoutRef.current = setTimeout(pollForUpdates, 1000);
       }
     }
-  }, [dateFilter, customDateRange.from, customDateRange.to, playAlarm]);
+  }, [dateFilter, customDateRange.from, customDateRange.to]);
   
   const updateOrderStatus = async (orderId, action, retry = false) => {
     setProcessingOrder(orderId);
@@ -446,10 +459,15 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
   const handleFilterChange = (filter) => {
     setDateFilter(filter);
     setShowDatePicker(false);
+    // RESET seen orders when filter changes so new orders in new date range are detected
+    seenOrderIdsRef.current = new Set();
+    notifiedOrderIdsRef.current = new Set();
     // Re-filter orders when filter changes
     if (orders && Array.isArray(orders)) {
       const filteredByDate = filterOrdersByDate(orders, filter, customDateRange.from, customDateRange.to);
       setKitchenOrders(filteredByDate);
+      const orderIds = filteredByDate.map(o => o.id);
+      seenOrderIdsRef.current = new Set(orderIds);
     }
     const label = dateFilterOptions.find(option => option.value === filter)?.label;
     showNotification('Filter Applied', label, 'success');
@@ -458,10 +476,15 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
   const handleCustomRangeApply = () => {
     setDateFilter('custom');
     setShowDatePicker(false);
+    // RESET seen orders when custom range changes so new orders in new date range are detected
+    seenOrderIdsRef.current = new Set();
+    notifiedOrderIdsRef.current = new Set();
     // Re-filter orders with custom range
     if (orders && Array.isArray(orders)) {
       const filteredByDate = filterOrdersByDate(orders, 'custom', customDateRange.from, customDateRange.to);
       setKitchenOrders(filteredByDate);
+      const orderIds = filteredByDate.map(o => o.id);
+      seenOrderIdsRef.current = new Set(orderIds);
     }
     showNotification('Custom Range Applied', 
       `${format(customDateRange.from, 'MMM d, yyyy')} - ${format(customDateRange.to, 'MMM d, yyyy')}`, 
@@ -508,16 +531,67 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
     }
   };
   
-  const refreshOrders = () => {
-    if (orders && Array.isArray(orders)) {
-      const filteredByDate = filterOrdersByDate(orders, dateFilter, customDateRange.from, customDateRange.to);
-      setKitchenOrders(filteredByDate);
+  const refreshOrders = async () => {
+    const { start_date, end_date, date_range } = getDateRangeParams(
+      dateFilter,
+      customDateRange.from,
+      customDateRange.to
+    );
+    
+    try {
+      const url = `/admin/kitchen/orders?date_range=${encodeURIComponent(date_range)}&start_date=${encodeURIComponent(start_date)}&end_date=${encodeURIComponent(end_date)}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRF-TOKEN': getCsrfToken(),
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const allOrders = Array.isArray(data?.orders) ? data.orders : [];
+        const filteredOrders = filterOrdersByDate(allOrders, dateFilter, customDateRange.from, customDateRange.to);
+        const dedupedOrders = Array.from(
+          new Map(filteredOrders.map(o => [o?.id, o])).values()
+        );
+        setKitchenOrders(dedupedOrders);
+        showNotification('Orders Refreshed', `Loaded ${dedupedOrders.length} order(s)`, 'success');
+      } else {
+        showNotification('Refresh Failed', `HTTP ${response.status}`, 'error');
+      }
+    } catch (error) {
+      console.error('Refresh error:', error);
+      showNotification('Refresh Error', error.message, 'error');
     }
-    showNotification('Refreshing', 'Refreshing orders...', 'info');
   };
   
   useEffect(() => {
     pollForUpdates();
+    
+    // Keep audio initialized on ANY user interaction (don't remove listeners)
+    // This ensures audio stays unlocked even for orders arriving after initial click
+    const handleUserInteraction = () => {
+      if (!audioSystemReadyRef.current && audioRef.current) {
+        // CRITICAL: Play audio SYNCHRONOUSLY in gesture context, not in async callback
+        // This is the only time browser allows autoplay after user gesture
+        audioRef.current.play()
+          .then(() => {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+            audioSystemReadyRef.current = true;
+            setAudioSystemReady(true);
+            showNotification('Audio Ready', 'Sound system initialized', 'success');
+          })
+          .catch(() => {});
+      }
+    };
+    
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('keydown', handleUserInteraction);
     
     const keepAlive = setInterval(() => {
       fetch('/keep-alive').catch(() => {});
@@ -527,20 +601,34 @@ export default function Kitchen({ orders = [], userRole = 'admin' }) {
       clearInterval(keepAlive);
       if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
       if (alarmStopTimerRef.current) clearTimeout(alarmStopTimerRef.current);
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
       mountedRef.current = false;
     };
-  }, []);
+  }, [playAlarm]);
   
   useKitchenOrders(
     useCallback((order) => {
-      if (order?.id && !seenOrderIdsRef.current.has(order.id)) {
+      if (!order?.id) return;
+
+      if (!seenOrderIdsRef.current.has(order.id)) {
         seenOrderIdsRef.current.add(order.id);
-        if (soundEnabledRef.current && audioSystemReadyRef.current) {
+
+        // Insert immediately (prevents UI lag) but always keep it deduped
+        setKitchenOrders(prev => {
+          const exists = prev.some(o => o?.id === order.id);
+          const next = exists ? prev : [order, ...prev];
+          return Array.from(new Map(next.map(o => [o?.id, o])).values());
+        });
+
+        if (soundEnabledRef.current) {
           playAlarm();
         }
-        pollForUpdates();
       }
-    }, [playAlarm, pollForUpdates]),
+
+      // Still refresh to ensure statuses/items are consistent
+      pollForUpdates();
+    }, []),
     useCallback((data) => {
       if (data?.id) {
         setKitchenOrders(prev => prev.map(order => {

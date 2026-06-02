@@ -159,6 +159,7 @@ export default function FoodItemForm({
         category_id:         item?.category_id || '',
         is_available:        item?.is_available ?? true,
         is_featured:         item?.is_featured || false,
+        menu_visibility:     item?.menu_visibility || 'both', // both | resto | kitchen
         image:               null,
         image_preview:       item?.image ? getImageUrl(item.image) : null,
         ingredients: (() => {
@@ -378,6 +379,7 @@ export default function FoodItemForm({
         data.append('category_id', formData.category_id);
         data.append('is_available', formData.is_available ? '1' : '0');
         data.append('is_featured',  formData.is_featured  ? '1' : '0');
+        data.append('menu_visibility', formData.menu_visibility || 'both');
         data.append('has_sizes', isSizePricing ? '1' : '0');
         if (isSizePricing) {
             // Send variant prices as JSON: [{ size_name, temperature, price }, ...]
@@ -612,23 +614,46 @@ export default function FoodItemForm({
                             </div>
 
                             {/* Toggles */}
-                            <div className="flex items-center gap-3 mt-auto pb-0.5">
+                            <div className="flex items-center gap-3 mt-auto pb-0.5 flex-wrap">
                                 <label className="flex items-center gap-2 cursor-pointer select-none">
                                     <div className={`relative w-8 h-4 rounded-full transition-colors ${formData.is_available ? 'bg-emerald-500' : 'bg-gray-200'}`}>
                                         <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${formData.is_available ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                        <input type="checkbox" checked={formData.is_available} className="sr-only"
-                                            onChange={e => setFormData({ ...formData, is_available: e.target.checked })} />
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.is_available}
+                                            className="sr-only"
+                                            onChange={e => setFormData({ ...formData, is_available: e.target.checked })}
+                                        />
                                     </div>
                                     <span className="text-xs font-medium text-gray-600">Available</span>
                                 </label>
+
                                 <label className="flex items-center gap-2 cursor-pointer select-none">
                                     <div className={`relative w-8 h-4 rounded-full transition-colors ${formData.is_featured ? 'bg-amber-400' : 'bg-gray-200'}`}>
                                         <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${formData.is_featured ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                                        <input type="checkbox" checked={formData.is_featured} className="sr-only"
-                                            onChange={e => setFormData({ ...formData, is_featured: e.target.checked })} />
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.is_featured}
+                                            className="sr-only"
+                                            onChange={e => setFormData({ ...formData, is_featured: e.target.checked })}
+                                        />
                                     </div>
                                     <span className="text-xs font-medium text-gray-600">Featured</span>
                                 </label>
+
+                                {/* Visible In */}
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs font-medium text-gray-600 whitespace-nowrap">Visible In</label>
+                                    <select
+                                        value={formData.menu_visibility || 'both'}
+                                        onChange={e => setFormData({ ...formData, menu_visibility: e.target.value })}
+                                        className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition"
+                                    >
+                                        <option value="both">Both (Resto &amp; Kitchen)</option>
+                                        <option value="resto">Resto</option>
+                                        <option value="kitchen">Kitchen</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 

@@ -6,6 +6,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Events\KitchenOrderCreated;
 use App\Events\RestoOrderCreated;
+use App\Events\KitchenOrderStatusChanged;
+use App\Events\RestoOrderStatusChanged;
 use App\Http\Controllers\Controller;
 use App\Models\CashSession;
 use App\Models\CashierShift;
@@ -1409,61 +1411,179 @@ class PosController extends Controller
         }
     }
 
-    public function markAsPaid(Request $request, Sale $sale)
-{
-    try {
-        $validated = $request->validate([
-            'payment_method_id' => 'required|integer',
-            'cash_received'     => 'nullable|numeric|min:0',
-            'change_due'        => 'nullable|numeric|min:0',
-        ]);
+    public function markAsPaid(Request $request, $order)
+    {
+        try {
+            // Fetch the sale by ID to ensure it exists
+            $sale = Sale::findOrFail($order);
+            
+            $validated = $request->validate([
+                'payment_method_id' => 'required|integer',
+                'cash_received'     => 'nullable|numeric|min:0',
+                'change_due'        => 'nullable|numeric|min:0',
+            ]);
 
-        DB::beginTransaction();
+            Log::info('Marking order as paid', [
+                'order_id' => $sale->id,
+                'payment_method_id' => $validated['payment_method_id'],
+                'current_status' => $sale->status,
+            ]);
 
-        $updateData = [
-            'payment_method_id' => $validated['payment_method_id'],
-            'cash_received'     => $validated['cash_received'] ?? null,
-            'change_due'        => $validated['change_due'] ?? null,
-        ];
+            DB::beginTransaction();
 
-        // Only add paid_at if the column exists
-        if (Schema::hasColumn('sales', 'paid_at')) {
-            $updateData['paid_at'] = now();
+            // Update sale with payment information
+            $updateData = [
+                'payment_method_id' => $validated['payment_method_id'],
+                'cash_received'     => $validated['cash_received'] ?? null,
+                'change_due'        => $validated['change_due'] ?? null,
+            ];
+
+            // Only add paid_at if the column exists
+            if (Schema::hasColumn('sales', 'paid_at')) {
+                $updateData['paid_at'] = now();
+            }
+
+            $sale->update($updateData);
+
+            DB::commit();
+
+            // Update cache to trigger POS refresh
+            cache()->put('menu_last_updated', time(), 3600);
+
+            // Reload order with full relationships for receipt and broadcast
+            $sale->load([
+                'saleItems.item',
+                'saleItems.kitchenItem',
+                'paymentMethod',
+                'user', // cashier
+            ]);
+
+            // Determine if order has kitchen items
+            $hasKitchenItems = $this->saleHasKitchenItems((int) $sale->id);
+
+            // Broadcast status change event to kitchen and POS displays
+            if ($hasKitchenItems) {
+                event(new KitchenOrderStatusChanged($sale, 'paid'));
+            } else {
+                event(new RestoOrderStatusChanged($sale, 'paid'));
+            }
+
+            Log::info('Status change event broadcasted', [
+                'order_id' => $sale->id,
+                'has_kitchen_items' => $hasKitchenItems,
+                'event_type' => $hasKitchenItems ? 'KitchenOrderStatusChanged' : 'RestoOrderStatusChanged',
+            ]);
+
+            // Format items for receipt
+            $receiptItems = $sale->saleItems->map(function ($saleItem) {
+                $itemName = $saleItem->item_name ??
+                           optional($saleItem->item)->name ??
+                           optional($saleItem->kitchenItem)->name ??
+                           'Unknown Item';
+
+                return [
+                    'name' => $itemName,
+                    'quantity' => (int) $saleItem->quantity,
+                    'price' => (float) $saleItem->unit_price,
+                    'subtotal' => (float) ($saleItem->unit_price * $saleItem->quantity),
+                ];
+            })->values()->toArray();
+
+            // Get settings from database
+            $settings = Setting::getMany([
+                'business_name',
+                'business_tagline',
+                'address',
+                'receipt_header',
+                'receipt_footer',
+                'tax_rate',
+                'service_charge',
+                'show_tax',
+                'show_service_charge',
+            ]);
+
+            // Build receipt data
+            $receiptData = [
+                // Order info
+                'order_id' => $sale->id,
+                'order_number' => $sale->order_number,
+                'txn_number' => $sale->txn_number,
+                'invoice_number' => $sale->invoice_number,
+                'created_at' => $sale->created_at->format('M d, Y h:i A'),
+                'date' => $sale->created_at->format('Y-m-d H:i:s'),
+                'status' => $sale->status,
+                // Business info
+                'business_name' => $settings['business_name'] ?? Setting::get('business_name') ?? 'CJ Brew & Dine',
+                'business_tagline' => $settings['business_tagline'] ?? null,
+                'business_address' => $settings['address'] ?? null,
+                // Header/Footer
+                'receipt_header' => $settings['receipt_header'] ?? 'THANK YOU FOR DINING!',
+                'receipt_footer' => $settings['receipt_footer'] ?? 'Please come again',
+                // Customer info
+                'customer_name' => $sale->customer_name ?? 'Walk-in Customer',
+                'cashier_name' => optional($sale->user)->name ?? '—',
+                'cashier' => optional($sale->user)->name ?? '—',
+                'room_number' => $sale->room_number ?? null,
+                // Payment info
+                'payment_method' => optional($sale->paymentMethod)->name ?? 'Cash',
+                'cash_received' => $sale->cash_received !== null ? (float) $sale->cash_received : null,
+                'change_due' => $sale->change_due !== null ? (float) $sale->change_due : null,
+                // Financial data
+                'subtotal' => (float) $sale->subtotal,
+                'discount' => (float) ($sale->discount_amount ?? 0),
+                'discount_amount' => (float) ($sale->discount_amount ?? 0),
+                'service_charge' => (float) ($sale->service_charge_amount ?? 0),
+                'service_charge_amount' => (float) ($sale->service_charge_amount ?? 0),
+                'total' => (float) ($sale->total_amount ?? 0),
+                'total_amount' => (float) ($sale->total_amount ?? 0),
+                'service_charge_rate' => (int) ($settings['service_charge'] ?? 10),
+                'tax_rate' => (int) ($settings['tax_rate'] ?? 12),
+                // Items
+                'items' => $receiptItems,
+                // Display flags
+                'show_tax' => (bool) ($settings['show_tax'] ?? true),
+                'show_service_charge' => (bool) ($settings['show_service_charge'] ?? true),
+                // VAT breakdown
+                'vat_exempt_sales' => (float) ($sale->vat_exempt_total ?? 0.00),
+                'zero_rated_sales' => (float) ($sale->zero_rated_total ?? 0.00),
+            ];
+
+            Log::info('Payment recorded and receipt generated', [
+                'order_id' => $sale->id,
+                'payment_method' => optional($sale->paymentMethod)->name ?? 'Cash',
+                'total_amount' => $sale->total_amount,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment recorded for Order #'.$sale->id,
+                'receipt' => $receiptData,
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            Log::error('markAsPaid failed', [
+                'order_id' => $sale->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
         }
-
-        $sale->update($updateData);
-
-        DB::commit();
-
-        // Your existing response code...
-        
-        return response()->json([
-            'success' => true,
-            'message' => 'Payment recorded for Order #'.$sale->id,
-            // ... rest of response
-        ]);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-
-        \Log::error('markAsPaid failed', [
-            'order_id' => $sale->id ?? null,
-            'error' => $e->getMessage(),
-        ]);
-
-        return response()->json([
-            'success' => false,
-            'error' => $e->getMessage(),
-        ], 500);
     }
-}
 
     /**
      * Cancel/void an order and restore previously deducted inventory.
      */
-    public function cancel(Request $request, Sale $order)
+    public function cancel(Request $request, $id)
     {
         try {
+            // Fetch the order by ID to ensure it exists
+            $order = Sale::findOrFail($id);
+            
             DB::beginTransaction();
 
             if ($order->status === 'cancelled') {
@@ -1556,10 +1676,19 @@ class PosController extends Controller
         }
     }
 
-    public function markAsReady(Request $request, Sale $sale)
+    public function markAsReady(Request $request, $order)
     {
         try {
+            // Fetch the sale by ID to ensure it exists
+            $sale = Sale::findOrFail($order);
+            
             if (in_array($sale->status, ['completed', 'cancelled'])) {
+                if ($request->expectsJson() || $request->isJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'Cannot mark order #'.$sale->id.' as ready — it is already '.$sale->status.'.',
+                    ], 422);
+                }
                 return redirect()->route('admin.pos.index')->with('error',
                     '❌ Cannot mark order #'.$sale->id.' as ready — it is already '.$sale->status.'.');
             }
@@ -1568,24 +1697,66 @@ class PosController extends Controller
                 'status' => 'ready',
             ]);
 
+            if ($request->expectsJson() || $request->isJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Order #'.$sale->id.' marked as ready for payment!',
+                ]);
+            }
+
             return redirect()->route('admin.pos.index')->with('success', '✅ Order #'.$sale->id.' marked as ready for payment!');
 
         } catch (\Exception $e) {
+            Log::error('markAsReady failed', [
+                'order_id' => $order ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            if ($request->expectsJson() || $request->isJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+
             return redirect()->route('admin.pos.index')->with('error', '❌ Failed to mark as ready: '.$e->getMessage());
         }
     }
 
-    public function markAsPreparing(Request $request, Sale $sale)
+    public function markAsPreparing(Request $request, $order)
     {
         try {
+            // Fetch the sale by ID to ensure it exists
+            $sale = Sale::findOrFail($order);
+            
             $sale->update([
                 'status' => 'preparing',
                 'kitchen_status' => 'preparing',
             ]);
 
+            // If this is an API request (from frontend), return JSON
+            if ($request->expectsJson() || $request->isJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Order #'.$sale->id.' marked as preparing!',
+                ]);
+            }
+
             return redirect()->route('admin.pos.index')->with('success', '✅ Order #'.$sale->id.' marked as preparing!');
 
         } catch (\Exception $e) {
+            Log::error('markAsPreparing failed', [
+                'order_id' => $order ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            if ($request->expectsJson() || $request->isJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $e->getMessage(),
+                ], 500);
+            }
+
             return redirect()->route('admin.pos.index')->with('error', '❌ Failed to mark as preparing: '.$e->getMessage());
         }
     }

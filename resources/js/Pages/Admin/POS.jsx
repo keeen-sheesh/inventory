@@ -295,6 +295,7 @@ export default function POS({
     const [pendingOrders, setPendingOrders] = useState(initialPendingOrders);
     const [orderItems, setOrderItems] = useState([]);
     const [activeCategory, setActiveCategory] = useState('all');
+    const [menuSourceFilter, setMenuSourceFilter] = useState('all'); // all | kitchen | resto
     const [orderType, setOrderType] = useState('dine_in');
     const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', address: '', notes: '' });
     
@@ -826,10 +827,10 @@ export default function POS({
     const getFilteredItems = () => {
         // Combine resto categories and kitchen categories
         const allCategories = [...(categories || []), ...(kitchenCategories || [])];
-        
+
         if (allCategories.length === 0) return [];
-        
-        const allItems = allCategories.flatMap(cat => 
+
+        const allItems = allCategories.flatMap(cat =>
             (cat.items || []).map(item => ({
                 ...item,
                 category_name: cat.name,
@@ -839,18 +840,28 @@ export default function POS({
             }))
         );
 
+        const sourceFilteredItems = (() => {
+            if (menuSourceFilter === 'kitchen') {
+                return allItems.filter(item => item.source === 'kitchen');
+            }
+            if (menuSourceFilter === 'resto') {
+                return allItems.filter(item => item.source === 'resto');
+            }
+            return allItems; // all
+        })();
+
         if (activeCategory === 'all') {
-            return filterItems(allItems);
+            return filterItems(sourceFilteredItems);
         } else if (activeCategory.startsWith('b:')) {
             // Both kitchen and resto share this category name — include items from both IDs
             const ids = activeCategory.slice(2).split(',').map(String);
-            return filterItems(allItems.filter(item => ids.includes(item.category_id.toString())));
+            return filterItems(sourceFilteredItems.filter(item => ids.includes(item.category_id.toString())));
         } else if (activeCategory.startsWith('r:') || activeCategory.startsWith('k:')) {
             const id = activeCategory.slice(2);
-            return filterItems(allItems.filter(item => item.category_id.toString() === id));
+            return filterItems(sourceFilteredItems.filter(item => item.category_id.toString() === id));
         } else {
             // Legacy plain numeric value fallback
-            return filterItems(allItems.filter(item => item.category_id.toString() === activeCategory));
+            return filterItems(sourceFilteredItems.filter(item => item.category_id.toString() === activeCategory));
         }
     };
 
@@ -1003,7 +1014,12 @@ export default function POS({
             return;
         }
 
-        if (!item.has_recipe && !item.ingredients?.length) {
+        // Allow ordering if the backend already computed available servings (recipe exists server-side
+        // even if client-side has_recipe/ingredients are stale after a recipe was just saved).
+        const hasServerSideStock = item.inventory_available_servings !== null &&
+            item.inventory_available_servings !== undefined &&
+            item.inventory_available_servings !== '';
+        if (!item.has_recipe && !item.ingredients?.length && !hasServerSideStock) {
             showNotification(`${item.name} has no recipe set — contact admin`, 'error');
             return;
         }
@@ -1069,7 +1085,10 @@ export default function POS({
             return;
         }
 
-        if (!item.has_recipe && !item.ingredients?.length) {
+        const hasServerSideStockHMIC = item.inventory_available_servings !== null &&
+            item.inventory_available_servings !== undefined &&
+            item.inventory_available_servings !== '';
+        if (!item.has_recipe && !item.ingredients?.length && !hasServerSideStockHMIC) {
             return;
         }
 
@@ -1842,8 +1861,11 @@ export default function POS({
             const menuData = await menuRes.json();
             const orderData = await orderRes.json();
             
-            if (menuData.success) setCategories(menuData.categories);
             if (menuData.success) {
+                setCategories(menuData.categories);
+                if (menuData.kitchen_categories) {
+                    setKitchenCategories(menuData.kitchen_categories);
+                }
                 lastMenuUpdateRef.current = normalizeMenuTimestamp(menuData.menu_last_updated) || getCurrentUnixSeconds();
             }
             if (orderData.success) {
@@ -2697,6 +2719,17 @@ export default function POS({
                                 </div>
 
                                 <select
+                                    value={menuSourceFilter}
+                                    onChange={(e) => setMenuSourceFilter(e.target.value)}
+                                    className="min-w-[160px] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    title="Filter menu by section"
+                                >
+                                    <option value="all">All (Kitchen &amp; Resto)</option>
+                                    <option value="kitchen">Kitchen</option>
+                                    <option value="resto">Resto</option>
+                                </select>
+
+                                <select
                                     value={activeCategory}
                                     onChange={(e) => setActiveCategory(e.target.value)}
                                     className="min-w-[240px] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2741,7 +2774,10 @@ export default function POS({
                                 <div className="grid grid-cols-3 gap-4">
                                     {filteredItems.map(item => {
                                         const isUnavailable = item.is_available === false;
-                                        const noRecipe = !item.has_recipe && !item.ingredients?.length;
+                                        const hasServerSideStock = item.inventory_available_servings !== null &&
+                                            item.inventory_available_servings !== undefined &&
+                                            item.inventory_available_servings !== '';
+                                        const noRecipe = !item.has_recipe && !item.ingredients?.length && !hasServerSideStock;
                                         const available = getEffectiveAvailable(item);
                                         const stockUnit = getStockUnitLabel(item);
                                         const outOfStock = isOutOfStock(item);
@@ -2914,20 +2950,6 @@ export default function POS({
                                                     )}
                                                     
                                                     <div className="grid grid-cols-2 gap-2">
-                                                        {/* Show Start button for Pending orders */}
-                                                        {(order.status === 'pending' || order.kitchen_status === 'pending' || (!order.kitchen_status && order.has_kitchen_items !== false)) && (
-                                                            <button
-                                                                onClick={() => startKitchenOrder(order.id)}
-                                                                disabled={processingOrder === order.id}
-                                                                className="bg-blue-500 hover:bg-blue-600 text-white rounded text-sm py-1.5 disabled:opacity-50 flex items-center justify-center gap-1 transition-colors">
-                                                                {processingOrder === order.id ? (
-                                                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                                                ) : (
-                                                                    <Play className="w-3 h-3" />
-                                                                )}
-                                                                {processingOrder === order.id ? 'Processing...' : 'Start'}
-                                                            </button>
-                                                        )}
                                                         
                                                         {/* Show Complete button for Ready orders only after payment is recorded */}
                                                         {!order.is_unpaid && (order.status === 'ready' || order.kitchen_status === 'ready' || order.all_items_ready === true) && (

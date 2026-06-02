@@ -6,6 +6,8 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 use App\Models\Item;
+use App\Models\KitchenItem;
+use App\Models\KitchenCategory;
 use App\Models\Customer;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -15,7 +17,7 @@ use App\Models\PaymentMethod;
 use App\Models\Expense;
 use App\Models\Table;
 use App\Models\Size;
-use App\Models\ItemSize;
+use App\Models\KitchenItemSize;
 
 class DatabaseSeeder extends Seeder
 {
@@ -24,7 +26,9 @@ class DatabaseSeeder extends Seeder
         // ========== DELETE ALL EXISTING DATA ==========
         SaleItem::query()->delete();
         Sale::query()->delete();
-        ItemSize::query()->delete();
+        KitchenItemSize::query()->delete();
+        KitchenItem::query()->delete();
+        KitchenCategory::query()->delete();
         Item::query()->delete();
         Size::query()->delete();
         Category::query()->delete();
@@ -108,6 +112,29 @@ class DatabaseSeeder extends Seeder
         $size6_8 = Size::where('name', '6-8 persons')->first();
         $size8_10 = Size::where('name', '8-10 persons')->first();
 
+        // ========== CREATE KITCHEN CATEGORIES ==========
+        $kitchenCategories = [
+            // Beverage Categories
+            ['name' => 'Coffee Based', 'is_active' => true, 'sort_order' => 1, 'description' => 'Hot and iced coffee drinks'],
+            ['name' => 'Milk Based', 'is_active' => true, 'sort_order' => 2, 'description' => 'Milk-based beverages'],
+            ['name' => 'Frappe', 'is_active' => true, 'sort_order' => 3, 'description' => 'Blended frozen drinks'],
+            ['name' => 'Soda', 'is_active' => true, 'sort_order' => 4, 'description' => 'Carbonated drinks'],
+            ['name' => 'Add Ons', 'is_active' => true, 'sort_order' => 5, 'description' => 'Beverage add-ons'],
+            ['name' => 'Beverages', 'is_active' => true, 'sort_order' => 6, 'description' => 'Other beverages'],
+        ];
+        
+        foreach ($kitchenCategories as $cat) {
+            KitchenCategory::create($cat);
+        }
+
+        // Get kitchen category IDs
+        $kCoffeeCategory = KitchenCategory::where('name', 'Coffee Based')->first();
+        $kMilkCategory = KitchenCategory::where('name', 'Milk Based')->first();
+        $kFrappeCategory = KitchenCategory::where('name', 'Frappe')->first();
+        $kSodaCategory = KitchenCategory::where('name', 'Soda')->first();
+        $kAddOnsCategory = KitchenCategory::where('name', 'Add Ons')->first();
+        $kBeveragesCategory = KitchenCategory::where('name', 'Beverages')->first();
+
         // ========== CREATE CATEGORIES ==========
         $categories = [
             // Food Categories
@@ -171,10 +198,10 @@ class DatabaseSeeder extends Seeder
 
         // ========== HELPER FUNCTION TO CREATE ITEM WITH SIZES ==========
         $createItemWithSizes = function($name, $description, $categoryId, $sizesWithPrices, $stockQuantity = 50, $lowStockThreshold = 10) {
-            $item = Item::create([
+            $item = KitchenItem::create([
                 'name' => $name,
                 'description' => $description,
-                'category_id' => $categoryId,
+                'kitchen_category_id' => $categoryId,
                 'is_available' => true,
                 'has_sizes' => true,
                 'price' => null,
@@ -184,8 +211,8 @@ class DatabaseSeeder extends Seeder
             ]);
 
             foreach ($sizesWithPrices as $sizeData) {
-                ItemSize::create([
-                    'item_id' => $item->id,
+                KitchenItemSize::create([
+                    'kitchen_item_id' => $item->id,
                     'size_id' => $sizeData['size_id'],
                     'price' => $sizeData['price'],
                 ]);
@@ -196,10 +223,10 @@ class DatabaseSeeder extends Seeder
 
         // ========== HELPER FUNCTION FOR SINGLE SIZE ITEMS ==========
         $createSingleSizeItem = function($name, $description, $categoryId, $price, $stockQuantity = 50, $lowStockThreshold = 10) {
-            return Item::create([
+            return KitchenItem::create([
                 'name' => $name,
                 'description' => $description,
-                'category_id' => $categoryId,
+                'kitchen_category_id' => $categoryId,
                 'is_available' => true,
                 'has_sizes' => false,
                 'price' => $price,
@@ -211,10 +238,10 @@ class DatabaseSeeder extends Seeder
 
         // ========== HELPER FUNCTION FOR DUAL PRICE ITEMS (Solo/Whole) ==========
         $createDualPriceItem = function($name, $description, $categoryId, $priceSolo, $priceWhole, $stockQuantity = 20, $lowStockThreshold = 5) {
-            return Item::create([
+            return KitchenItem::create([
                 'name' => $name,
                 'description' => $description,
-                'category_id' => $categoryId,
+                'kitchen_category_id' => $categoryId,
                 'is_available' => true,
                 'has_sizes' => false,
                 'price' => $priceSolo,
@@ -350,7 +377,7 @@ class DatabaseSeeder extends Seeder
             $createItemWithSizes(
                 $item['name'],
                 $item['description'],
-                $coffeeCategory->id,
+                $kCoffeeCategory->id,
                 $item['sizes'],
                 50,
                 15
@@ -445,7 +472,7 @@ class DatabaseSeeder extends Seeder
             $createItemWithSizes(
                 $item['name'],
                 $item['description'],
-                $milkCategory->id,
+                $kMilkCategory->id,
                 $item['sizes'],
                 40,
                 12
@@ -548,7 +575,7 @@ class DatabaseSeeder extends Seeder
             $createItemWithSizes(
                 $item['name'],
                 $item['description'],
-                $frappeCategory->id,
+                $kFrappeCategory->id,
                 $item['sizes'],
                 35,
                 10
@@ -603,13 +630,17 @@ class DatabaseSeeder extends Seeder
             $createItemWithSizes(
                 $item['name'],
                 $item['description'],
-                $sodaCategory->id,
+                $kSodaCategory->id,
                 $item['sizes'],
                 60,
                 15
             );
         }
 
+        /* FOOD ITEMS SECTION - COMMENTED OUT BECAUSE THEY REQUIRE KITCHEN CATEGORIES
+        These items would need to be refactored to use KitchenItem/KitchenCategory
+        For now, only beverage items (coffee, milk, frappe, soda, add-ons, beverages) are seeded
+        
         // ========== RICE (4-5 persons) ==========
         $riceItems = [
             ['name' => 'Platter Rice', 'price' => 160],
@@ -1230,7 +1261,7 @@ class DatabaseSeeder extends Seeder
             $createSingleSizeItem(
                 $item['name'],
                 null,
-                $addOnsCategory->id,
+                $kAddOnsCategory->id,
                 $item['price'],
                 100,
                 20
@@ -1254,12 +1285,13 @@ class DatabaseSeeder extends Seeder
             $createSingleSizeItem(
                 $item['name'],
                 null,
-                $beveragesCategory->id,
+                $kBeveragesCategory->id,
                 $item['price'],
                 50,
                 12
             );
         }
+        */ // END OF COMMENTED FOOD ITEMS SECTION
 
         // ========== CREATE PAYMENT METHODS ==========
         $paymentMethods = [

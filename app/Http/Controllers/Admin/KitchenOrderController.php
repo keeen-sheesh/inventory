@@ -74,10 +74,31 @@ class KitchenOrderController extends Controller
      */
     public function getOrders(Request $request)
     {
-        // Get ALL orders - just like Dashboard does
-        $orders = Sale::with(['saleItems', 'paymentMethod', 'user'])
-            ->orderBy('created_at', 'desc')
-            ->get()
+        $dateRange  = $request->input('date_range', 'today');
+        $startDate  = $request->input('start_date'); // yyyy-mm-dd expected
+        $endDate    = $request->input('end_date');   // yyyy-mm-dd expected
+
+        // Apply date filtering (matches what Kitchen.jsx requests)
+        $range = $this->getDateRangeQuery($dateRange, $startDate, $endDate);
+
+        Log::info('[KitchenOrderController@getOrders] params', [
+            'date_range' => $dateRange,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'computed_start' => (string) $range['start'],
+            'computed_end' => (string) $range['end'],
+        ]);
+
+        $ordersQuery = Sale::with(['saleItems', 'paymentMethod', 'user'])
+            ->whereBetween('created_at', [$range['start'], $range['end']])
+            ->orderBy('created_at', 'desc');
+
+        $rawOrdersCount = (clone $ordersQuery)->count();
+        Log::info('[KitchenOrderController@getOrders] raw orders count', [
+            'count' => $rawOrdersCount,
+        ]);
+
+        $orders = $ordersQuery->get()
             ->map(function ($order) {
                 $kitchenItems = [];
                 foreach ($order->saleItems as $item) {
@@ -97,7 +118,7 @@ class KitchenOrderController extends Controller
                     'txn_number' => $order->txn_number,
                     'order_type' => $order->order_type ?? 'takeout',
                     'customer_name' => $order->customer_name ?? 'Walk-in Customer',
-                    'created_at' => $order->created_at->toIso8601String(),
+                    'created_at' => $order->created_at?->toIso8601String(),
                     'kitchen_status' => $order->kitchen_status ?? 'pending',
                     'status' => $order->status,
                     'items' => $kitchenItems,
@@ -111,6 +132,23 @@ class KitchenOrderController extends Controller
                 return $order['item_count'] > 0;
             })
             ->values();
+
+        Log::info('[KitchenOrderController@getOrders] mapped orders count', [
+            'count' => $orders->count(),
+            'first_order_id' => $orders->first()['id'] ?? null,
+        ]);
+
+        if ($orders->count() > 0) {
+            $sample = $orders->first();
+            Log::info('[KitchenOrderController@getOrders] sample payload', [
+                'sample_order_id' => $sample['id'] ?? null,
+                'sample_created_at' => $sample['created_at'] ?? null,
+                'sample_kitchen_status' => $sample['kitchen_status'] ?? null,
+                'sample_first_item_kitchen_status' => $sample['items'][0]['kitchen_status'] ?? null,
+                'sample_first_item_kitchen_type' => $sample['items'][0]['kitchen_type'] ?? null,
+            ]);
+        }
+
 
         return response()->json([
             'success' => true,
