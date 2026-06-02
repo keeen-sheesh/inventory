@@ -248,6 +248,9 @@ Route::middleware(['auth', 'verified', 'role:admin,manager,kitchen,kitchen_resto
         // ── Audit Trail ──────────────────────────────────────────────────────────
         Route::get('/audit-trail', [InventoryController::class, 'getAuditTrailData'])->name('audit-trail');
 
+        // ── Stock Audit Import ───────────────────────────────────────────────────
+        Route::post('/stock-audit-import', [InventoryController::class, 'importStockAudit'])->name('stock-audit-import');
+
         // ── Wastage Record ───────────────────────────────────────────────────────
         Route::get('/wastage',  [InventoryController::class, 'getWastageData'])->name('wastage');
         Route::post('/wastage', [InventoryController::class, 'storeWastage'])->name('wastage.store');

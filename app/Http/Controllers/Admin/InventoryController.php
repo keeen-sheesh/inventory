@@ -1165,4 +1165,75 @@ class InventoryController extends Controller
         
         return response()->json(['success' => true, 'records' => $records]);
     }
+
+    public function importStockAudit(Request $request)
+    {
+        $validated = $request->validate([
+            'items' => 'required|array|min:1',
+            'items.*.ingredient_name' => 'required|string',
+            'items.*.expected_stock' => 'required|numeric|min:0',
+            'items.*.physical_count' => 'required|numeric|min:0',
+            'items.*.variance' => 'required|numeric',
+            'items.*.unit' => 'required|string',
+            'items.*.pool' => 'nullable|string'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $successCount = 0;
+            $notes = [];
+
+            foreach ($validated['items'] as $auditItem) {
+                // Find ingredient by name (case-insensitive)
+                $ingredient = Ingredient::whereRaw('LOWER(name) = ?', [strtolower($auditItem['ingredient_name'])])->first();
+
+                if (!$ingredient) {
+                    $notes[] = "Ingredient '{$auditItem['ingredient_name']}' not found in system";
+                    continue;
+                }
+
+                // Determine the pool
+                $pool = InventoryPool::where('code', strtoupper($auditItem['pool'] ?? 'RESTO'))->first();
+                if (!$pool) {
+                    $pool = InventoryPool::where('code', 'RESTO')->first();
+                }
+
+                // If there's a variance, create an inventory transaction
+                if ($auditItem['variance'] != 0) {
+                    InventoryTransaction::create([
+                        'ingredient_id'     => $ingredient->id,
+                        'inventory_pool_id' => $pool->id,
+                        'quantity_delta'    => $auditItem['variance'],
+                        'reason'            => 'stock_audit',
+                        'user_id'           => auth()->id(),
+                        'notes'             => "Stock Audit: Expected {$auditItem['expected_stock']}, Counted {$auditItem['physical_count']}, Variance {$auditItem['variance']} {$ingredient->unit}",
+                    ]);
+
+                    // Update ingredient stock
+                    $stock = IngredientStock::firstOrCreate(
+                        ['ingredient_id' => $ingredient->id, 'inventory_pool_id' => $pool->id],
+                        ['quantity' => 0]
+                    );
+                    $stock->quantity = $auditItem['physical_count'];
+                    $stock->save();
+                }
+
+                $successCount++;
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$successCount} ingredient(s) audited successfully. " . (count($notes) > 0 ? count($notes) . " item(s) skipped." : ""),
+                'notes' => $notes,
+                'ingredients' => $this->getAllIngredientsWithStock()
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['success' => false, 'message' => 'Audit import failed: ' . $e->getMessage()], 500);
+        }
+    }
 }

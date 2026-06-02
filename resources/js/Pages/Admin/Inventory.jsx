@@ -2,6 +2,7 @@ import AdminLayout from '@/Layouts/AdminLayout';
 import { Head, usePage } from '@inertiajs/react';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 
 // ============================================================================
 // CONSTANTS
@@ -578,6 +579,11 @@ export default function Inventory({ auth }) {
     const [stockTakeItems, setStockTakeItems] = useState([{ ingredient_id: '', pool: 'resto', counted_quantity: '' }]);
     const [stockTakeLabel, setStockTakeLabel] = useState('');
 
+    // Stock Audit Tab
+    const [auditData, setAuditData] = useState([]);
+    const [uploadedFile, setUploadedFile] = useState(null);
+    const [importedAuditData, setImportedAuditData] = useState([]);
+
     const refreshIngredients = useCallback(async () => {
         try {
             const response = await axios.get('/admin/inventory/ingredients');
@@ -1059,6 +1065,138 @@ export default function Inventory({ auth }) {
         setStockTakeItems(newItems);
     };
 
+    // Stock Audit Export/Import Functions
+    const exportAuditToExcel = () => {
+        if (ingredients.length === 0) {
+            showError('No ingredients to export');
+            return;
+        }
+
+        const auditRows = ingredients.map(ing => ({
+            'Ingredient Name': ing.name,
+            'Category': ing.category || '',
+            'Unit': ing.unit,
+            'Pool': ing.pool === 'resto' ? 'Restaurant' : 'Kitchen',
+            'Expected Stock': ing.current_stock || 0,
+            'Physical Count': '',
+            'Variance': '',
+            'Cost Per Unit': ing.cost_per_unit || 0,
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(auditRows);
+        
+        // Set column widths
+        worksheet['!cols'] = [
+            { wch: 25 },
+            { wch: 15 },
+            { wch: 10 },
+            { wch: 12 },
+            { wch: 15 },
+            { wch: 15 },
+            { wch: 12 },
+            { wch: 15 },
+        ];
+
+        // Format header row
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const address = XLSX.utils.encode_col(C) + '1';
+            if (!worksheet[address]) continue;
+            worksheet[address].s = {
+                font: { bold: true, color: { rgb: 'FFFFFF' } },
+                fill: { fgColor: { rgb: '4B5563' } },
+                alignment: { horizontal: 'center', vertical: 'center' },
+                border: { bottom: { style: 'thin' } }
+            };
+        }
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Stock Audit');
+        XLSX.writeFile(workbook, `stock-audit-${new Date().toISOString().split('T')[0]}.xlsx`);
+        
+        showSuccess('Stock audit exported successfully');
+    };
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setUploadedFile(file);
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                // Map the imported data to audit format with validation
+                const mappedData = jsonData.map((row, idx) => {
+                    const ingredientName = row['Ingredient Name'] || '';
+                    const physicalCount = parseFloat(row['Physical Count']) || 0;
+                    const expectedStock = parseFloat(row['Expected Stock']) || 0;
+                    const variance = physicalCount - expectedStock;
+
+                    return {
+                        id: idx,
+                        name: ingredientName,
+                        expectedStock,
+                        physicalCount,
+                        variance,
+                        category: row['Category'] || '',
+                        unit: row['Unit'] || '',
+                        pool: row['Pool'] || '',
+                        costPerUnit: parseFloat(row['Cost Per Unit']) || 0,
+                        valid: ingredientName && physicalCount >= 0,
+                        error: !ingredientName ? 'Missing ingredient name' : (isNaN(physicalCount) ? 'Invalid physical count' : null)
+                    };
+                }).filter(row => row.valid);
+
+                setImportedAuditData(mappedData);
+                showSuccess(`Imported ${mappedData.length} items from file`);
+            } catch (error) {
+                showError('Error parsing file: ' + error.message);
+                setImportedAuditData([]);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    const submitAuditImport = async () => {
+        if (importedAuditData.length === 0) {
+            showError('No valid items to import');
+            return;
+        }
+
+        setIsSubmitting(true);
+        try {
+            const response = await axios.post('/admin/inventory/stock-audit-import', {
+                items: importedAuditData.map(item => ({
+                    ingredient_name: item.name,
+                    expected_stock: item.expectedStock,
+                    physical_count: item.physicalCount,
+                    variance: item.variance,
+                    unit: item.unit,
+                    pool: item.pool
+                }))
+            });
+
+            if (response.data.success) {
+                setImportedAuditData([]);
+                setUploadedFile(null);
+                await refreshIngredients();
+                showSuccess(`Audit import completed: ${response.data.message}`);
+            } else {
+                showError(response.data.message || 'Failed to import audit data');
+            }
+        } catch (error) {
+            showError(error.response?.data?.message || 'Failed to import audit data');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const checkAvailability = async () => {
         if (!checkingItem) return;
         try {
@@ -1246,6 +1384,7 @@ export default function Inventory({ auth }) {
                                 { id: 'items', label: `Menu Items (${items?.length || 0})` },
                                 { id: 'purchase_history', label: `Purchase History (${receipts?.length || 0})` },
                                 { id: 'stock_movements', label: 'Stock Movements' },
+                                { id: 'stock_audit', label: 'Stock Audit' },
                                 { id: 'audit_trail', label: 'Audit Trail' },
                             ].map(tab => (
                                 <button
@@ -1510,6 +1649,101 @@ export default function Inventory({ auth }) {
                             
                             {filteredMovements.length > ITEMS_PER_PAGE && (
                                 <Pagination currentPage={movementsPage} totalPages={Math.ceil(filteredMovements.length / ITEMS_PER_PAGE)} onPageChange={setMovementsPage} totalItems={filteredMovements.length} />
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'stock_audit' && (
+                        <div className="p-4">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h2 className="text-base font-semibold">Stock Audit</h2>
+                                    <p className="text-xs text-gray-500">Compare expected stock vs physical count</p>
+                                </div>
+                                <Button onClick={exportAuditToExcel} variant="success">Export to Excel</Button>
+                            </div>
+
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                                <h3 className="text-sm font-semibold text-blue-900 mb-3">How to use Stock Audit:</h3>
+                                <ol className="text-xs text-blue-800 space-y-1 ml-4">
+                                    <li>1. Click "Export to Excel" to download the current stock list</li>
+                                    <li>2. Open the file and fill in the "Physical Count" column with counted amounts</li>
+                                    <li>3. Save the file and upload it back here</li>
+                                    <li>4. Review the imported data and submit to complete the audit</li>
+                                </ol>
+                            </div>
+
+                            <div className="border-2 border-dashed rounded-lg p-6 text-center bg-gray-50 mb-6">
+                                <div className="mb-3">
+                                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3v-12" />
+                                    </svg>
+                                </div>
+                                <label className="cursor-pointer">
+                                    <span className="text-sm font-medium text-blue-600 hover:text-blue-700">Click to upload</span>
+                                    <span className="text-xs text-gray-500"> or drag and drop</span>
+                                    <input
+                                        type="file"
+                                        accept=".xlsx,.xls"
+                                        onChange={handleFileUpload}
+                                        className="hidden"
+                                    />
+                                </label>
+                                <p className="text-xs text-gray-500 mt-2">Excel files only (.xlsx, .xls)</p>
+                            </div>
+
+                            {importedAuditData.length > 0 && (
+                                <div className="space-y-4">
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                        <p className="text-sm font-semibold text-green-900 mb-3">Imported Data: {importedAuditData.length} items</p>
+                                        <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                                            <table className="w-full text-xs">
+                                                <thead className="bg-green-100 sticky top-0">
+                                                    <tr>
+                                                        <th className="px-3 py-2 text-left">Ingredient</th>
+                                                        <th className="px-3 py-2 text-center">Category</th>
+                                                        <th className="px-3 py-2 text-center">Unit</th>
+                                                        <th className="px-3 py-2 text-center">Expected</th>
+                                                        <th className="px-3 py-2 text-center">Physical</th>
+                                                        <th className="px-3 py-2 text-center">Variance</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y">
+                                                    {importedAuditData.map((item, idx) => (
+                                                        <tr key={idx} className="hover:bg-green-50">
+                                                            <td className="px-3 py-2 font-medium">{item.name}</td>
+                                                            <td className="px-3 py-2 text-center text-gray-600">{item.category}</td>
+                                                            <td className="px-3 py-2 text-center">{item.unit}</td>
+                                                            <td className="px-3 py-2 text-center font-mono">{formatNumber(item.expectedStock)}</td>
+                                                            <td className="px-3 py-2 text-center font-mono font-semibold">{formatNumber(item.physicalCount)}</td>
+                                                            <td className={`px-3 py-2 text-center font-mono font-semibold ${item.variance > 0 ? 'text-green-700' : item.variance < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                                                                {item.variance > 0 ? '+' : ''}{formatNumber(item.variance)}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <Button 
+                                            onClick={submitAuditImport} 
+                                            variant="success" 
+                                            loading={isSubmitting}
+                                            className="flex-1"
+                                        >
+                                            Submit Audit Import
+                                        </Button>
+                                        <Button 
+                                            onClick={() => { setImportedAuditData([]); setUploadedFile(null); }} 
+                                            variant="secondary"
+                                            className="flex-1"
+                                        >
+                                            Cancel
+                                        </Button>
+                                    </div>
+                                </div>
                             )}
                         </div>
                     )}
