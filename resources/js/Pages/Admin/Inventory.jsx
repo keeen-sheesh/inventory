@@ -8,13 +8,6 @@ import * as XLSX from 'xlsx';
 // CONSTANTS
 // ============================================================================
 
-const PREDEFINED_CATEGORIES = [
-    'Vegetables', 'Meat', 'Poultry', 'Seafood', 'Dairy', 'Eggs',
-    'Rice & Grains', 'Pasta & Noodles', 'Flour & Baking', 'Sugar & Sweeteners',
-    'Spices & Seasonings', 'Oils & Vinegars', 'Sauces & Condiments',
-    'Canned Goods', 'Frozen Foods', 'Beverages', 'Bread & Bakery', 'Fruits', 'Herbs', 'Others', 'Snacks', 'Test'
-];
-
 const UNIT_OPTIONS = [
     'kg', 'g', 'lb', 'oz', 'L', 'mL', 'gal', 'fl oz',
     'pcs', 'dozen', 'box', 'bag', 'bottle', 'can', 'jar',
@@ -434,7 +427,6 @@ const IngredientNameValidator = ({ value, ingredients, onLoadExisting, onChange 
                             <div className="text-xs text-gray-500 mt-1 flex gap-3">
                                 <span>Unit: {ing.unit}</span>
                                 <span>Stock: {ing.current_stock?.toFixed(2)}</span>
-                                <span>Category: {ing.category || 'Uncategorized'}</span>
                             </div>
                         </div>
                     ))}
@@ -524,7 +516,6 @@ export default function Inventory({ auth }) {
 
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('all');
-    const [filterCategory, setFilterCategory] = useState('All Categories');
     const [filterPool, setFilterPool] = useState('all');
     const [movementFilter, setMovementFilter] = useState('all');
 
@@ -536,7 +527,6 @@ export default function Inventory({ auth }) {
     const [showStockCheck, setShowStockCheck] = useState(false);
     const [showReceiptDetails, setShowReceiptDetails] = useState(false);
     const [selectedReceipt, setSelectedReceipt] = useState(null);
-    const [customCategory, setCustomCategory] = useState(false);
     const [selectedMovementType, setSelectedMovementType] = useState('return');
     const [selectedItem, setSelectedItem] = useState(null);
     const [checkingItem, setCheckingItem] = useState(null);
@@ -546,11 +536,11 @@ export default function Inventory({ auth }) {
     const [existingIngredientData, setExistingIngredientData] = useState(null);
 
     const [newIngredient, setNewIngredient] = useState({
-        name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0
+        name: '', unit: 'kg', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0
     });
     
     const [editIngredientData, setEditIngredientData] = useState({
-        id: null, name: '', unit: 'kg', category: '', min_stock: 0, current_stock: 0, pool: '', cost_per_unit: 0
+        id: null, name: '', unit: 'kg', min_stock: 0, current_stock: 0, pool: '', cost_per_unit: 0
     });
     
     const [bulkData, setBulkData] = useState({
@@ -647,23 +637,16 @@ export default function Inventory({ auth }) {
                 ...prev,
                 name: existingIngredient.name,
                 unit: existingIngredient.unit,
-                category: existingIngredient.category || '',
                 pool: existingIngredient.pool,
                 min_stock: existingIngredient.min_stock,
                 cost_per_unit: existingIngredient.cost_per_unit
             }));
-            if (existingIngredient.category && !PREDEFINED_CATEGORIES.includes(existingIngredient.category)) {
-                setCustomCategory(true);
-            } else {
-                setCustomCategory(false);
-            }
         } else {
             setExistingIngredientId(null);
             setExistingIngredientData(null);
             setNewIngredient(prev => ({
                 ...prev,
-                name: '',
-                category: ''
+                name: ''
             }));
         }
     };
@@ -693,8 +676,7 @@ export default function Inventory({ auth }) {
                 
                 if (response.data.success) {
                     setShowAddIngredient(false);
-                    setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 });
-                    setCustomCategory(false);
+                    setNewIngredient({ name: '', unit: 'kg', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 });
                     setExistingIngredientId(null);
                     setExistingIngredientData(null);
                     setFormErrors({});
@@ -714,7 +696,6 @@ export default function Inventory({ auth }) {
                 const payload = {
                     name: newIngredient.name,
                     unit: newIngredient.unit,
-                    category: newIngredient.category || null,
                     min_stock: parseInt(newIngredient.min_stock) || 0,
                     initial_stock: parseFloat(newIngredient.initial_stock) || 0,
                     pool: newIngredient.pool,
@@ -725,8 +706,7 @@ export default function Inventory({ auth }) {
                 
                 if (response.data.success) {
                     setShowAddIngredient(false);
-                    setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 });
-                    setCustomCategory(false);
+                    setNewIngredient({ name: '', unit: 'kg', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 });
                     setFormErrors({});
                     await refreshIngredients();
                     showSuccess(`Created new ingredient: ${newIngredient.name}`);
@@ -768,7 +748,6 @@ export default function Inventory({ auth }) {
             const payload = {
                 name: editIngredientData.name,
                 unit: editIngredientData.unit,
-                category: editIngredientData.category || null,
                 min_stock: parseFloat(editIngredientData.min_stock) || 0,
                 current_stock: editIngredientData.current_stock || 0,
                 pool: editIngredientData.pool,
@@ -1074,7 +1053,7 @@ export default function Inventory({ auth }) {
 
         const auditRows = ingredients.map(ing => ({
             'Ingredient Name': ing.name,
-            'Category': ing.category || '',
+
             'Unit': ing.unit,
             'Pool': ing.pool === 'resto' ? 'Restaurant' : 'Kitchen',
             'Expected Stock': ing.current_stock || 0,
@@ -1144,7 +1123,7 @@ export default function Inventory({ auth }) {
                         expectedStock,
                         physicalCount,
                         variance,
-                        category: row['Category'] || '',
+
                         unit: row['Unit'] || '',
                         pool: row['Pool'] || '',
                         costPerUnit: parseFloat(row['Cost Per Unit']) || 0,
@@ -1285,17 +1264,10 @@ export default function Inventory({ auth }) {
         return movements.sort((a, b) => new Date(b.date) - new Date(a.date));
     }, [stockReturns, stockLosses, stockTransfers, wastage, stockTakes]);
 
-    const getCategoryOptions = useCallback(() => {
-        const ingredientCategories = ingredients.map(ing => ing.category).filter(c => c && c !== '');
-        return ['All Categories', 'Uncategorized', ...new Set([...PREDEFINED_CATEGORIES, ...ingredientCategories])];
-    }, [ingredients]);
-
     const allMovements = useMemo(() => getAllMovements(), [getAllMovements]);
     const filteredMovements = useMemo(() => {
         return movementFilter === 'all' ? allMovements : allMovements.filter(m => m.type === movementFilter);
     }, [allMovements, movementFilter]);
-    
-    const categoryOptions = useMemo(() => getCategoryOptions(), [getCategoryOptions]);
     
     const filteredIngredients = useMemo(() => {
         if (!ingredients || ingredients.length === 0) return [];
@@ -1303,17 +1275,7 @@ export default function Inventory({ auth }) {
         return ingredients.filter(ing => {
             let matchesSearch = true;
             if (searchTerm) {
-                matchesSearch = (ing.name && ing.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                               (ing.category && ing.category.toLowerCase().includes(searchTerm.toLowerCase()));
-            }
-            
-            let matchesCategory = true;
-            if (filterCategory === 'All Categories') {
-                matchesCategory = true;
-            } else if (filterCategory === 'Uncategorized') {
-                matchesCategory = !ing.category || ing.category === '';
-            } else {
-                matchesCategory = ing.category === filterCategory;
+                matchesSearch = ing.name && ing.name.toLowerCase().includes(searchTerm.toLowerCase());
             }
             
             let matchesStatus = true;
@@ -1326,9 +1288,9 @@ export default function Inventory({ auth }) {
                 matchesPool = ing.pool === filterPool;
             }
             
-            return matchesSearch && matchesCategory && matchesStatus && matchesPool;
+            return matchesSearch && matchesStatus && matchesPool;
         });
-    }, [ingredients, searchTerm, filterCategory, filterStatus, filterPool]);
+    }, [ingredients, searchTerm, filterStatus, filterPool]);
 
     return (
         <AdminLayout user={auth.user} header="Inventory Management">
@@ -1416,9 +1378,6 @@ export default function Inventory({ auth }) {
                                     value={searchTerm}
                                     onChange={(e) => { setSearchTerm(e.target.value); setIngredientsPage(1); }}
                                 />
-                                <select className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setIngredientsPage(1); }}>
-                                    {categoryOptions.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                                </select>
                                 <select className="px-2 py-1.5 border rounded-md text-xs bg-white" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setIngredientsPage(1); }}>
                                     <option value="all">All Status</option>
                                     <option value="good">In Stock</option>
@@ -1443,7 +1402,6 @@ export default function Inventory({ auth }) {
                                         <thead className="bg-gray-50 border-b">
                                             <tr>
                                                 <th className="px-3 py-2 text-left">Name</th>
-                                                <th className="px-3 py-2 text-left">Category</th>
                                                 <th className="px-3 py-2 text-left">Unit</th>
                                                 <th className="px-3 py-2 text-center">Pool</th>
                                                 <th className="px-3 py-2 text-center">Stock</th>
@@ -1458,7 +1416,6 @@ export default function Inventory({ auth }) {
                                             {filteredIngredients.slice((ingredientsPage - 1) * ITEMS_PER_PAGE, ingredientsPage * ITEMS_PER_PAGE).map(ing => (
                                                 <tr key={ing.id} className="hover:bg-gray-50 transition">
                                                     <td className="px-3 py-2 font-medium">{ing.name}</td>
-                                                    <td className="px-3 py-2 text-gray-500">{ing.category || '—'}</td>
                                                     <td className="px-3 py-2">{ing.unit}</td>
                                                     <td className="px-3 py-2 text-center">
                                                         <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${ing.pool === 'resto' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
@@ -1701,7 +1658,6 @@ export default function Inventory({ auth }) {
                                                 <thead className="bg-green-100 sticky top-0">
                                                     <tr>
                                                         <th className="px-3 py-2 text-left">Ingredient</th>
-                                                        <th className="px-3 py-2 text-center">Category</th>
                                                         <th className="px-3 py-2 text-center">Unit</th>
                                                         <th className="px-3 py-2 text-center">Expected</th>
                                                         <th className="px-3 py-2 text-center">Physical</th>
@@ -1712,7 +1668,6 @@ export default function Inventory({ auth }) {
                                                     {importedAuditData.map((item, idx) => (
                                                         <tr key={idx} className="hover:bg-green-50">
                                                             <td className="px-3 py-2 font-medium">{item.name}</td>
-                                                            <td className="px-3 py-2 text-center text-gray-600">{item.category}</td>
                                                             <td className="px-3 py-2 text-center">{item.unit}</td>
                                                             <td className="px-3 py-2 text-center font-mono">{formatNumber(item.expectedStock)}</td>
                                                             <td className="px-3 py-2 text-center font-mono font-semibold">{formatNumber(item.physicalCount)}</td>
@@ -1856,7 +1811,7 @@ export default function Inventory({ auth }) {
             </Modal>
 
             {/* Add Ingredient Modal */}
-            <Modal isOpen={showAddIngredient} onClose={() => { setShowAddIngredient(false); setFormErrors({}); setCustomCategory(false); setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); setExistingIngredientData(null); }} title="Add Ingredient" subtitle="Create new ingredient or add stock to existing" size="md">
+            <Modal isOpen={showAddIngredient} onClose={() => { setShowAddIngredient(false); setFormErrors({}); setNewIngredient({ name: '', unit: 'kg', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); setExistingIngredientData(null); }} title="Add Ingredient" subtitle="Create new ingredient or add stock to existing" size="md">
                 {formErrors.submit && <div className="mb-4 p-2 bg-red-50 border rounded text-red-700 text-xs">{formErrors.submit}</div>}
                 
                 <div className="grid grid-cols-2 gap-3">
@@ -1873,24 +1828,7 @@ export default function Inventory({ auth }) {
                     <Select id="unit" label="Unit" value={newIngredient.unit} onChange={e => setNewIngredient({...newIngredient, unit: e.target.value})} options={UNIT_OPTIONS.map(u => ({ value: u, label: u }))} required />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="mb-4">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
-                        {!customCategory ? (
-                            <div className="flex gap-2">
-                                <select className="flex-1 px-3 py-2 text-sm border rounded-lg bg-white" value={newIngredient.category} onChange={e => setNewIngredient({...newIngredient, category: e.target.value})}>
-                                    <option value="">Select Category</option>
-                                    {PREDEFINED_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                                </select>
-                                <button type="button" onClick={() => setCustomCategory(true)} className="px-3 py-2 bg-gray-100 rounded-lg text-xs hover:bg-gray-200">Custom</button>
-                            </div>
-                        ) : (
-                            <div className="flex gap-2">
-                                <input type="text" placeholder="Enter custom category" className="flex-1 px-3 py-2 text-sm border rounded-lg" value={newIngredient.category} onChange={e => setNewIngredient({...newIngredient, category: e.target.value})} />
-                                <button type="button" onClick={() => { setCustomCategory(false); setNewIngredient({...newIngredient, category: ''}); }} className="px-3 py-2 bg-gray-100 rounded-lg text-xs hover:bg-gray-200">Back</button>
-                            </div>
-                        )}
-                    </div>
+                <div className="mb-4">
                     <Select id="pool" label="Pool" value={newIngredient.pool} onChange={e => setNewIngredient({...newIngredient, pool: e.target.value})} options={[{ value: 'resto', label: 'Restaurant' }, { value: 'kitchen', label: 'Kitchen' }]} required />
                 </div>
                 
@@ -1922,7 +1860,7 @@ export default function Inventory({ auth }) {
                     <Button onClick={addOrUpdateIngredient} variant="primary" className="flex-1" loading={isSubmitting}>
                         {existingIngredientId ? `Add ${formatNumber(newIngredient.initial_stock)} ${newIngredient.unit} to Stock` : 'Create Ingredient'}
                     </Button>
-                    <Button onClick={() => { setShowAddIngredient(false); setFormErrors({}); setCustomCategory(false); setNewIngredient({ name: '', unit: 'kg', category: '', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); setExistingIngredientData(null); }} variant="secondary" className="flex-1">Cancel</Button>
+                    <Button onClick={() => { setShowAddIngredient(false); setFormErrors({}); setNewIngredient({ name: '', unit: 'kg', pool: 'resto', min_stock: 0, initial_stock: 0, cost_per_unit: 0 }); setExistingIngredientId(null); setExistingIngredientData(null); }} variant="secondary" className="flex-1">Cancel</Button>
                 </div>
             </Modal>
 
@@ -1937,23 +1875,7 @@ export default function Inventory({ auth }) {
                     <Select id="edit_unit" label="Unit" value={editIngredientData.unit} onChange={e => setEditIngredientData({...editIngredientData, unit: e.target.value})} options={UNIT_OPTIONS.map(u => ({ value: u, label: u }))} required />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="mb-4">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">Category</label>
-                        <select
-                            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                            value={editIngredientData.category || ''}
-                            onChange={(e) => setEditIngredientData({...editIngredientData, category: e.target.value})}
-                        >
-                            <option value="">-- Select Category --</option>
-                            {PREDEFINED_CATEGORIES.map(cat => (
-                                <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                            {editIngredientData.category && !PREDEFINED_CATEGORIES.includes(editIngredientData.category) && (
-                                <option value={editIngredientData.category}>{editIngredientData.category}</option>
-                            )}
-                        </select>
-                    </div>
+                <div className="mb-4">
                     <Select id="edit_pool" label="Pool" value={editIngredientData.pool} onChange={e => setEditIngredientData({...editIngredientData, pool: e.target.value})} options={[{ value: 'resto', label: 'Restaurant' }, { value: 'kitchen', label: 'Kitchen' }]} required />
                 </div>
                 

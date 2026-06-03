@@ -459,8 +459,17 @@ class PosController extends Controller
                 $item->setAttribute('inventory_available_servings', $inventory['available_servings']);
                 $item->setAttribute('inventory_available_servings_whole', $inventoryWhole['available_servings'] ?? null);
 
-                // Add source field to identify this as a resto item
-                $item->setAttribute('source', 'resto');
+                // Set source field based on menu_visibility (not hardcoded to 'resto')
+                $visibility = strtolower(trim((string) ($item->menu_visibility ?? '')));
+                if ($visibility === 'kitchen') {
+                    $item->setAttribute('source', 'kitchen');
+                } elseif ($visibility === 'resto') {
+                    $item->setAttribute('source', 'resto');
+                } else {
+                    // For 'both', default to 'resto' for backward compatibility
+                    $item->setAttribute('source', 'resto');
+                }
+
                 $item->setAttribute(
                     'is_kitchen_category',
                     (bool) ($category->is_kitchen_category ?? false) || ($item->menu_visibility ?? null) === 'kitchen'

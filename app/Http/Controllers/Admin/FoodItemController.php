@@ -154,7 +154,6 @@ class FoodItemController extends Controller
             $validated['is_featured'] = isset($validated['is_featured']) ? (bool)$validated['is_featured'] : false;
             $validated['pricing_type'] = $validated['pricing_type'] ?? 'single';
             $validated['has_recipe'] = isset($validated['has_recipe']) ? (bool)$validated['has_recipe'] : false;
-            $validated['inventory_pool_code'] = $this->resolvePoolFromCategory((int) $validated['category_id']);
 
             // Force menu_visibility based on role (server-side safety net)
             $userRole = strtolower((string) optional($request->user())->role);
@@ -164,6 +163,17 @@ class FoodItemController extends Controller
                 $validated['menu_visibility'] = 'resto';
             } else {
                 $validated['menu_visibility'] = $request->input('menu_visibility', 'both'); // admin chooses
+            }
+            
+            // Set inventory_pool_code based on menu_visibility
+            $visibility = strtolower(trim((string) ($validated['menu_visibility'] ?? '')));
+            if ($visibility === 'kitchen') {
+                $validated['inventory_pool_code'] = InventoryPool::KITCHEN;
+            } elseif ($visibility === 'resto') {
+                $validated['inventory_pool_code'] = InventoryPool::RESTO;
+            } else {
+                // For 'both', use category to determine
+                $validated['inventory_pool_code'] = $this->resolvePoolFromCategory((int) $validated['category_id']);
             }
             
             // Set price based on pricing type
@@ -285,7 +295,31 @@ class FoodItemController extends Controller
             $validated['is_featured'] = isset($validated['is_featured']) ? (bool)$validated['is_featured'] : $item->is_featured;
             $validated['pricing_type'] = $validated['pricing_type'] ?? $item->pricing_type ?? 'single';
             $validated['has_recipe'] = isset($validated['has_recipe']) ? (bool)$validated['has_recipe'] : $item->has_recipe ?? false;
-            $validated['inventory_pool_code'] = $this->resolvePoolFromCategory((int) $validated['category_id']);
+            
+            // Set menu_visibility if provided, otherwise keep existing
+            if ($request->has('menu_visibility')) {
+                $userRole = strtolower((string) optional($request->user())->role);
+                if ($userRole === 'kitchen') {
+                    $validated['menu_visibility'] = 'kitchen';
+                } elseif (in_array($userRole, ['resto', 'cashier', 'kitchen_resto'])) {
+                    $validated['menu_visibility'] = 'resto';
+                } else {
+                    $validated['menu_visibility'] = $request->input('menu_visibility', $item->menu_visibility ?? 'both');
+                }
+            } else {
+                $validated['menu_visibility'] = $item->menu_visibility ?? 'both';
+            }
+            
+            // Set inventory_pool_code based on menu_visibility
+            $visibility = strtolower(trim((string) ($validated['menu_visibility'] ?? '')));
+            if ($visibility === 'kitchen') {
+                $validated['inventory_pool_code'] = InventoryPool::KITCHEN;
+            } elseif ($visibility === 'resto') {
+                $validated['inventory_pool_code'] = InventoryPool::RESTO;
+            } else {
+                // For 'both', use category to determine
+                $validated['inventory_pool_code'] = $this->resolvePoolFromCategory((int) $validated['category_id']);
+            }
             
             // Set price based on pricing type
             if (($validated['pricing_type'] ?? 'single') === 'dual') {
@@ -561,21 +595,31 @@ class FoodItemController extends Controller
             ->where('is_available', true)
             ->orderBy('sort_order', 'asc')
             ->orderBy('name', 'asc')
-            ->get()
-            ->map(function($item) {
-                return [
-                    'id' => $item->id,
-                    'name' => $item->name,
-                    'description' => $item->description,
-                    'price' => (float)$item->price,
-                    'category_id' => $item->category_id,
-                    'category_name' => $item->category->name ?? '',
-                    'is_available' => (bool)$item->is_available,
-                    'stock_quantity' => (int)$item->stock_quantity,
-                    'low_stock_threshold' => (int)$item->low_stock_threshold,
-                    'image' => $item->image,
-                ];
-            });
+            ->get();
+
+        // Filter by role using menu_visibility
+        $role = strtolower((string) optional($request->user())->role);
+        $items = $items->filter(function ($item) use ($role) {
+            $vis = $item->menu_visibility ?? 'both';
+            if ($role === 'kitchen') return in_array($vis, ['kitchen', 'both']);
+            if (in_array($role, ['resto', 'cashier', 'kitchen_resto'])) return in_array($vis, ['resto', 'both']);
+            return true; // admin sees all
+        })->values();
+
+        $items = $items->map(function($item) {
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+                'description' => $item->description,
+                'price' => (float)$item->price,
+                'category_id' => $item->category_id,
+                'category_name' => $item->category->name ?? '',
+                'is_available' => (bool)$item->is_available,
+                'stock_quantity' => (int)$item->stock_quantity,
+                'low_stock_threshold' => (int)$item->low_stock_threshold,
+                'image' => $item->image,
+            ];
+        });
 
         return response()->json([
             'success' => true,
@@ -653,15 +697,27 @@ Log::error('Failed to broadcast menu update: ' . $e->getMessage());
 
     private function resolveItemPoolCode(Item $item): string
     {
+        // Priority 1: Check menu_visibility field (most specific indicator)
+        $visibility = strtolower(trim((string) ($item->menu_visibility ?? '')));
+        if ($visibility === 'kitchen') {
+            return InventoryPool::KITCHEN;
+        }
+        if ($visibility === 'resto') {
+            return InventoryPool::RESTO;
+        }
+        
+        // Priority 2: Check explicit inventory_pool_code
         $poolCode = strtolower(trim((string) $item->inventory_pool_code));
         if (in_array($poolCode, [InventoryPool::RESTO, InventoryPool::KITCHEN], true)) {
             return $poolCode;
         }
 
+        // Priority 3: Derive from category
         if ($item->category_id) {
             return $this->resolvePoolFromCategory((int) $item->category_id);
         }
 
+        // Fallback
         return InventoryPool::RESTO;
     }
 
